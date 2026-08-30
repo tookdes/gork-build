@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 10:00:00 -0700
+Subject: [PATCH] openai-strict-responses-wire: sanitize Responses requests and test strict mode
+
+Gork-Patch-Id: openai-strict-responses-wire
+Gork-Invariant: strict-openai-responses-wire
+Gork-Risk: critical
+---
+
+diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+--- a/crates/codegen/xai-grok-sampler/src/client.rs
++++ b/crates/codegen/xai-grok-sampler/src/client.rs
+@@ -1281,10 +1432,15 @@ impl SamplingClient {
+         // old raw_output machinery.
+         xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
++        if self.defaults.strict_openai {
++            sanitize_strict_response_body(&mut request_body);
++        }
+         let SentRequest {
+             builder,
+             sent_bearer,
+         } = self.post(self.endpoint("responses"));
+-        let http_request = grok_headers.apply(builder).json(&request_body);
++        let http_request = self
++            .apply_grok_headers(grok_headers, builder)
++            .json(&request_body);
+ 
+         let response = http_request.send().await.map_err(|e| {
+             tracing::debug!("HTTP request failed: {}", e);
+@@ -1399,7 +1554,7 @@ impl SamplingClient {
+             SamplingError::Serialization(e)
+         })?;
+         // Inject xAI-specific fields not in async-openai's CreateResponse type.
+-        if self.defaults.stream_tool_calls {
++        if self.defaults.stream_tool_calls && !self.defaults.strict_openai {
+             request_body["stream_tool_calls"] = serde_json::json!(true);
+         }
+         splice_extra_tool_entries(&mut request_body, extra_tool_entries);
+@@ -1407,19 +1562,27 @@ impl SamplingClient {
+         append_response_includes(&mut request_body, &self.defaults.extra_response_includes);
+         xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
++        if self.defaults.strict_openai {
++            sanitize_strict_response_body(&mut request_body);
++        }
+         // Fresh per attempt so signals never leak across retries; `None`
+         // (check disabled) sends no header and does no peek work per event.
+-        let doom_loop = self
+-            .defaults
+-            .doom_loop_recovery
+-            .map(crate::doom_loop::DoomLoopSignalCollector::new);
++        let doom_loop = if self.defaults.strict_openai {
++            None
++        } else {
++            self.defaults
++                .doom_loop_recovery
++                .map(crate::doom_loop::DoomLoopSignalCollector::new)
++        };
+         let SentRequest {
+             builder,
+             sent_bearer,
+         } = self.post(self.endpoint("responses"));
+-        let mut http_request = grok_headers
+-            .apply(builder)
++        let mut http_request = self
++            .apply_grok_headers(grok_headers, builder)
+             .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
+-        if let Some(policy) = self.defaults.doom_loop_recovery {
++        if !self.defaults.strict_openai
++            && let Some(policy) = self.defaults.doom_loop_recovery
++        {
+             http_request = http_request
+                 .header(DOOM_LOOP_CHECK_HEADER, policy.window_tokens.to_string())
+                 .header(
+@@ -2227,6 +2391,120 @@ mod tests {
+     use xai_grok_sampling_types::ApiErrorCode;
+     use xai_grok_sampling_types::types::ChatRequestMessage;
+ 
++    fn strict_config(api_backend: ApiBackend) -> SamplerConfig {
++        let mut config = minimal_config();
++        config.api_backend = api_backend;
++        config
++            .extra_headers
++            .insert(OPENAI_COMPAT_MARKER.to_owned(), "strict".to_owned());
++        config
++    }
++
++    #[test]
++    fn strict_chat_body_uses_openai_fields_and_rehomes_tool_images() {
++        let mut body = serde_json::json!({
++            "model": "gpt-test",
++            "max_tokens": 123,
++            "search_parameters": {"mode": "auto"},
++            "messages": [
++                {
++                    "role": "assistant",
++                    "content": "thinking done",
++                    "model_id": "grok-internal",
++                    "reasoning_content": "private reasoning",
++                    "tool_calls": [{"id": "a", "type": "function", "function": {"name": "view", "arguments": "{}"}}]
++                },
++                {
++                    "role": "tool",
++                    "tool_call_id": "a",
++                    "content": [
++                        {"type": "text", "text": "first"},
++                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}}
++                    ]
++                },
++                {
++                    "role": "tool",
++                    "tool_call_id": "b",
++                    "content": [
++                        {"type": "image_url", "image_url": {"url": "data:image/png;base64,BBB"}}
++                    ]
++                },
++                {"role": "assistant", "content": "continue"}
++            ]
++        });
++        sanitize_strict_chat_body(&mut body);
++        assert!(body.get("max_tokens").is_none());
++        assert_eq!(body["max_completion_tokens"], serde_json::json!(123));
++        assert!(body.get("search_parameters").is_none());
++        let messages = body["messages"].as_array().unwrap();
++        assert!(messages.iter().all(|message| message.get("model_id").is_none()));
++        assert!(
++            messages
++                .iter()
++                .all(|message| message.get("reasoning_content").is_none())
++        );
++        assert_eq!(messages[1]["role"], "tool");
++        assert_eq!(messages[1]["content"], "first");
++        assert_eq!(messages[2]["role"], "tool");
++        assert_eq!(messages[2]["content"], "Tool returned image output.");
++        assert_eq!(messages[3]["role"], "user");
++        assert_eq!(messages[3]["content"].as_array().unwrap().len(), 3);
++        assert_eq!(messages[4]["role"], "assistant");
++    }
++
++    #[test]
++    fn strict_response_body_removes_only_xai_extensions() {
++        let mut body = serde_json::json!({
++            "stream_tool_calls": true,
++            "include": ["reasoning.encrypted_content", "no_inline_citations"],
++            "tools": [
++                {"type": "web_search"},
++                {"type": "x_search"},
++                {"type": "function", "name": "f"}
++            ]
++        });
++        sanitize_strict_response_body(&mut body);
++        assert!(body.get("stream_tool_calls").is_none());
++        assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
++        assert_eq!(body["tools"].as_array().unwrap().len(), 2);
++        assert!(
++            body["tools"]
++                .as_array()
++                .unwrap()
++                .iter()
++                .all(|tool| tool["type"] != "x_search")
++        );
++    }
++
++    #[test]
++    fn strict_client_suppresses_x_grok_headers_and_marker() {
++        let mut config = strict_config(ApiBackend::ChatCompletions);
++        config.client_version = Some("1.2.3".to_owned());
++        config.deployment_id = Some("dep".to_owned());
++        config.user_id = Some("user".to_owned());
++        config
++            .extra_headers
++            .insert("x-grok-custom".to_owned(), "blocked".to_owned());
++        config
++            .extra_headers
++            .insert("x-compaction-at".to_owned(), "1000".to_owned());
++        let client = SamplingClient::new(config).expect("strict client should construct");
++        assert!(client.defaults.strict_openai);
++        assert!(
++            client
++                .default_headers
++                .keys()
++                .all(|name| !is_grok_only_header(name.as_str()))
++        );
++    }
++
++    #[test]
++    fn strict_messages_backend_is_rejected_early() {
++        let err = SamplingClient::new(strict_config(ApiBackend::Messages)).unwrap_err();
++        assert!(matches!(err, SamplingError::InvalidConfiguration(_)));
++        assert!(err.to_string().contains("Anthropic Messages API"));
++    }
++
+     #[test]
+     fn splice_extra_tool_entries_extends_existing_tools_array() {
+         let mut body = serde_json::json!({ "tools": [{ "type": "function" }] });
+
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+-- 
+2.50.1
