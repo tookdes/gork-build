@@ -8,5 +8,9 @@
 0060-egress-guard.patch
 0070-supply-chain-policy.patch
 0075-win-build-portability.patch
+0076-openai-strict-config.patch
+0077-openai-strict-client-core.patch
+0078-openai-strict-chat-wire.patch
+0079-openai-strict-responses-wire.patch
 0080-product-identity.patch
 0081-package-publishing.patch
