@@ -1,0 +1,290 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 10:00:00 -0700
+Subject: [PATCH] openai-strict-client-core: gate Grok wire extensions
+
+Gork-Patch-Id: openai-strict-client-core
+Gork-Invariant: strict-openai-header-gate
+Gork-Risk: critical
+---
+
+diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+--- a/crates/codegen/xai-grok-sampler/src/client.rs
++++ b/crates/codegen/xai-grok-sampler/src/client.rs
+@@ -28,7 +28,7 @@ use xai_grok_sampling_types::{
+     is_check_event, messages, rs,
+ };
+ 
+-use crate::config::{AuthScheme, OriginClientInfo, SamplerConfig};
++use crate::config::{AuthScheme, OPENAI_COMPAT_MARKER, OriginClientInfo, SamplerConfig};
+ use crate::events::SamplingErrorInfo;
+ use xai_grok_auth::bearer_suffix;
+ 
+@@ -229,6 +229,124 @@ fn append_response_includes(body: &mut serde_json::Value, extra_includes: &[String]) {
+     }
+ }
+ 
++/// Rewrite Grok's extended Chat Completions body into a strict OpenAI shape.
++///
++/// Tool-result images cannot remain on a `role=tool` message for strict
++/// Chat Completions. Keep all consecutive tool messages contiguous and move
++/// their image blocks into one following user multimodal message. This avoids
++/// breaking parallel tool-call ordering while preserving image visibility.
++fn sanitize_strict_chat_body(body: &mut serde_json::Value) {
++    let Some(object) = body.as_object_mut() else {
++        return;
++    };
++
++    if let Some(max_tokens) = object.remove("max_tokens")
++        && !max_tokens.is_null()
++    {
++        object.insert("max_completion_tokens".to_owned(), max_tokens);
++    }
++    object.remove("search_parameters");
++
++    let Some(messages) = object
++        .get_mut("messages")
++        .and_then(serde_json::Value::as_array_mut)
++    else {
++        return;
++    };
++
++    let mut rewritten = Vec::with_capacity(messages.len());
++    let mut pending_images = Vec::new();
++    for mut message in std::mem::take(messages) {
++        let is_tool = message.get("role").and_then(serde_json::Value::as_str) == Some("tool");
++        if !is_tool && !pending_images.is_empty() {
++            rewritten.push(strict_tool_image_message(std::mem::take(&mut pending_images)));
++        }
++
++        if let Some(message_object) = message.as_object_mut() {
++            message_object.remove("model_id");
++            message_object.remove("reasoning_content");
++
++            if is_tool
++                && let Some(blocks) = message_object
++                    .get_mut("content")
++                    .and_then(serde_json::Value::as_array_mut)
++            {
++                let mut text = Vec::new();
++                for block in std::mem::take(blocks) {
++                    match block.get("type").and_then(serde_json::Value::as_str) {
++                        Some("text") => {
++                            if let Some(value) =
++                                block.get("text").and_then(serde_json::Value::as_str)
++                            {
++                                text.push(value.to_owned());
++                            }
++                        }
++                        Some("image_url") => pending_images.push(block),
++                        _ => text.push(block.to_string()),
++                    }
++                }
++                let mut content = text.join("\n");
++                if content.is_empty() && !pending_images.is_empty() {
++                    content = "Tool returned image output.".to_owned();
++                }
++                message_object.insert("content".to_owned(), serde_json::Value::String(content));
++            }
++        }
++        rewritten.push(message);
++    }
++    if !pending_images.is_empty() {
++        rewritten.push(strict_tool_image_message(pending_images));
++    }
++    *messages = rewritten;
++}
++
++fn strict_tool_image_message(images: Vec<serde_json::Value>) -> serde_json::Value {
++    let mut content = vec![serde_json::json!({
++        "type": "text",
++        "text": "Image returned by tool."
++    })];
++    content.extend(images);
++    serde_json::json!({
++        "role": "user",
++        "content": content,
++    })
++}
++
++/// Remove xAI-only Responses extensions while retaining standard OpenAI
++/// fields such as `reasoning.encrypted_content`.
++fn sanitize_strict_response_body(body: &mut serde_json::Value) {
++    let Some(object) = body.as_object_mut() else {
++        return;
++    };
++    object.remove("stream_tool_calls");
++    if let Some(tools) = object
++        .get_mut("tools")
++        .and_then(serde_json::Value::as_array_mut)
++    {
++        tools.retain(|tool| {
++            tool.get("type").and_then(serde_json::Value::as_str) != Some("x_search")
++        });
++    }
++    let mut remove_include = false;
++    if let Some(include) = object
++        .get_mut("include")
++        .and_then(serde_json::Value::as_array_mut)
++    {
++        include.retain(|value| value.as_str() != Some("no_inline_citations"));
++        remove_include = include.is_empty();
++    }
++    if remove_include {
++        object.remove("include");
++    }
++}
++
++fn is_grok_only_header(name: &str) -> bool {
++    let lower = name.to_ascii_lowercase();
++    lower.starts_with("x-grok-")
++        || lower == "x-compactions-remaining"
++        || lower == "x-compaction-at"
++}
++
+ /// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
+ fn apply_env_http_headers(
+     env_http_headers: &IndexMap<String, String>,
+@@ -374,6 +465,7 @@ struct ClientDefaults {
+     auth_scheme: AuthScheme,
+     stream_tool_calls: bool,
+     extra_response_includes: Vec<String>,
++    strict_openai: bool,
+     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
+ }
+ 
+@@ -575,6 +667,16 @@ impl SamplingClient {
+     /// any network I/O.
+     pub fn new(config: SamplerConfig) -> Result<Self> {
+         let mut headers = HeaderMap::new();
++        let strict_openai = config
++            .extra_headers
++            .get(OPENAI_COMPAT_MARKER)
++            .is_some_and(|value| value.eq_ignore_ascii_case("strict"));
++        if strict_openai && matches!(config.api_backend, ApiBackend::Messages) {
++            return Err(SamplingError::InvalidConfiguration(
++                "openai_compat=\"strict\" supports only chat_completions or responses; messages uses the Anthropic Messages API",
++            ));
++        }
++
+         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+         if let Some(ref api_key) = config.api_key {
+             match config.auth_scheme {
+@@ -610,6 +714,11 @@ impl SamplingClient {
+         // injection point for proxy-auth headers and any other URL- or
+         // environment-specific headers the session decides to set.
+         for (key, value) in &config.extra_headers {
++            if key == OPENAI_COMPAT_MARKER
++                || (strict_openai && key.to_ascii_lowercase().starts_with("x-grok-"))
++            {
++                continue;
++            }
+             let header_name = HeaderName::try_from(key.as_str())
+                 .map_err(|_| SamplingError::InvalidConfiguration("Invalid extra header name"))?;
+             let header_value = HeaderValue::from_str(value)
+@@ -626,32 +736,41 @@ impl SamplingClient {
+             &mut headers,
+         );
+ 
+-        // Add x-grok-client-version header for version gating at the proxy.
+-        if let Some(client_version) = config.client_version.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(client_version)
+-        {
+-            headers.insert(
+-                HeaderName::from_static("x-grok-client-version"),
+-                header_value,
+-            );
+-        }
+-
+-        if let Some(deployment_id) = config.deployment_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(deployment_id)
+-        {
+-            headers.insert(
+-                HeaderName::from_static("x-grok-deployment-id"),
+-                header_value,
+-            );
+-        }
+-
+-        if let Some(user_id) = config.user_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(user_id)
+-        {
+-            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
+-        }
+-
+-        {
++        if strict_openai {
++            let grok_headers: Vec<_> = headers
++                .keys()
++                .filter(|name| is_grok_only_header(name.as_str()))
++                .cloned()
++                .collect();
++            for name in grok_headers {
++                headers.remove(name);
++            }
++        } else {
++            // Add x-grok-client-version header for version gating at the proxy.
++            if let Some(client_version) = config.client_version.as_ref()
++                && let Ok(header_value) = HeaderValue::from_str(client_version)
++            {
++                headers.insert(
++                    HeaderName::from_static("x-grok-client-version"),
++                    header_value,
++                );
++            }
++
++            if let Some(deployment_id) = config.deployment_id.as_ref()
++                && let Ok(header_value) = HeaderValue::from_str(deployment_id)
++            {
++                headers.insert(
++                    HeaderName::from_static("x-grok-deployment-id"),
++                    header_value,
++                );
++            }
++
++            if let Some(user_id) = config.user_id.as_ref()
++                && let Ok(header_value) = HeaderValue::from_str(user_id)
++            {
++                headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
++            }
++
+             let client_id = config
+                 .client_identifier
+                 .clone()
+@@ -695,6 +816,7 @@ impl SamplingClient {
+             has_bearer_resolver = config.bearer_resolver.is_some(),
+             has_authorization_header = headers.get(AUTHORIZATION).is_some(),
+             has_x_api_key_header = headers.get(HeaderName::from_static("x-api-key")).is_some(),
++            strict_openai,
+         );
+ 
+         let defaults = ClientDefaults {
+@@ -706,5 +828,6 @@ impl SamplingClient {
+             auth_scheme: config.auth_scheme,
+             stream_tool_calls: config.stream_tool_calls,
+             extra_response_includes: config.extra_response_includes,
++            strict_openai,
+             doom_loop_recovery: config.doom_loop_recovery,
+         };
+@@ -870,6 +993,18 @@ impl SamplingClient {
+         Ok(request)
+     }
+ 
++    fn apply_grok_headers(
++        &self,
++        grok_headers: GrokRequestHeaders<'_>,
++        builder: reqwest::RequestBuilder,
++    ) -> reqwest::RequestBuilder {
++        if self.defaults.strict_openai {
++            builder
++        } else {
++            grok_headers.apply(builder)
++        }
++    }
++
+     /// `sent_bearer` is the fragment [`Self::post`] captured for the
+     /// request that produced `response` (401 attribution).
+     async fn handle_response(
+
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+-- 
+2.50.1
