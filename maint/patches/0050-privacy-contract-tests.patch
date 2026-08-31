@@ -7,16 +7,16 @@ Gork-Patch-Id: privacy-contract-tests
 Gork-Invariant: privacy-contracts-present
 Gork-Risk: critical
 ---
- .../xai-grok-shell/tests/privacy_resolvers.rs | 110 ++++++++++++++++++
- 1 file changed, 110 insertions(+)
+ .../xai-grok-shell/tests/privacy_resolvers.rs | 116 ++++++++++++++++++
+ 1 file changed, 116 insertions(+)
  create mode 100644 crates/codegen/xai-grok-shell/tests/privacy_resolvers.rs
 
 diff --git a/crates/codegen/xai-grok-shell/tests/privacy_resolvers.rs b/crates/codegen/xai-grok-shell/tests/privacy_resolvers.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..5147effc1479e1c1e98392f7cfc600d90b9913f5
+index 0000000000000000000000000000000000000000..fb7141b83688d6d48e3fb98e4a2f7ec896fc18f6
 --- /dev/null
 +++ b/crates/codegen/xai-grok-shell/tests/privacy_resolvers.rs
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,116 @@
 +//! Privacy hard-off regression tests for telemetry / trace-upload resolvers.
 +//!
 +//! Integration tests (not `#[cfg(test)]` unit tests) so they compile against the
@@ -104,8 +104,14 @@ index 0000000000000000000000000000000000000000..5147effc1479e1c1e98392f7cfc600d9
 +    unsafe {
 +        std::env::remove_var("GROK_FEEDBACK_ENABLED");
 +    }
-+    let mut cfg = Config::default();
-+    cfg.features.feedback = Some(true);
++    let raw: toml::Value = toml::from_str(
++        r#"
++        [features]
++        feedback = true
++        "#,
++    )
++    .unwrap();
++    let mut cfg = Config::new_from_toml_cfg(&raw).unwrap();
 +    cfg.remote_settings = Some(RemoteSettings {
 +        feedback_enabled: Some(true),
 +        ..Default::default()
