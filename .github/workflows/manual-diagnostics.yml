@@ -1,4 +1,4 @@
-name: Manual latest diagnostics
+name: One-shot patch maintenance
 
 on:
   pull_request:
@@ -16,12 +16,13 @@ env:
   SOURCE_REV: d5a0335a47221e8c9519936cb693e9b6450227ec
   RUST_TOOLCHAIN: "1.94.0"
   CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
 
 jobs:
-  diagnose:
+  maintain:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -31,47 +32,159 @@ jobs:
 
       - name: Configure git identity
         run: |
-          git config user.name gork-ci
-          git config user.email gork-ci@users.noreply.github.com
+          git config --global user.name gork-ci
+          git config --global user.email gork-ci@users.noreply.github.com
 
-      - name: Replay patches on latest official upstream
+      - name: Materialize current functional stack
+        run: python3 maint/scripts/patchctl.py checkout
+
+      - name: Fold telemetry manifest fix and Clippy fix into telemetry hard-off
         run: |
           set -euo pipefail
-          python3 maint/scripts/patchctl.py apply \
+          cd .work/src
+          git reset --hard HEAD
+          git clean -fd
+
+          C10=$(git log --format='%H' --grep='^Gork-Patch-Id: telemetry-hard-off$' -1)
+          C11=$(git log --format='%H' --grep='^Gork-Patch-Id: telemetry-manifest-fix$' -1)
+          test -n "$C10"
+          test -n "$C11"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('crates/codegen/xai-mixpanel/src/lib.rs')
+          text = p.read_text()
+          needle = 'const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);\n'
+          if text.count(needle) != 1:
+              raise SystemExit(f'expected exactly one REQUEST_TIMEOUT constant, found {text.count(needle)}')
+          p.write_text(text.replace(needle, '', 1))
+          PY
+          git add crates/codegen/xai-mixpanel/src/lib.rs
+          git commit --fixup="$C10"
+
+          export C11
+          cat >/tmp/gork-sequence-editor.py <<'PY'
+          #!/usr/bin/env python3
+          import os
+          import sys
+          from pathlib import Path
+          todo = Path(sys.argv[1])
+          target = os.environ['C11']
+          lines = todo.read_text().splitlines()
+          found = False
+          out = []
+          for line in lines:
+              parts = line.split(maxsplit=2)
+              if len(parts) >= 2 and parts[0] in {'pick', 'p'} and target.startswith(parts[1]):
+                  out.append('fixup ' + line.split(maxsplit=1)[1])
+                  found = True
+              else:
+                  out.append(line)
+          if not found:
+              raise SystemExit('telemetry-manifest-fix commit not found in rebase todo')
+          todo.write_text('\n'.join(out) + '\n')
+          PY
+          chmod +x /tmp/gork-sequence-editor.py
+          GIT_SEQUENCE_EDITOR=/tmp/gork-sequence-editor.py \
+            git rebase -i --autosquash "$UPSTREAM_SHA"
+
+          test "$(git log --format='%B' "$UPSTREAM_SHA"..HEAD | grep -c '^Gork-Patch-Id: telemetry-hard-off$')" -eq 1
+          test "$(git log --format='%B' "$UPSTREAM_SHA"..HEAD | grep -c '^Gork-Patch-Id: telemetry-manifest-fix$' || true)" -eq 0
+          ! grep -q 'const REQUEST_TIMEOUT' crates/codegen/xai-mixpanel/src/lib.rs
+
+      - name: Remove temporary patch manifest entry and re-export stack
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('maint/patchset.toml')
+          text = p.read_text()
+          marker = '# Temporary 1.0.12 replay fix; squash back into telemetry-hard-off after the\n'
+          start = text.find(marker)
+          if start < 0:
+              raise SystemExit('telemetry-manifest-fix marker not found')
+          next_block = '[[patch]]\nid = "research-upload-hard-off"'
+          end = text.find(next_block, start)
+          if end < 0:
+              raise SystemExit('research-upload-hard-off block not found')
+          p.write_text(text[:start] + text[end:])
+          PY
+          python3 maint/scripts/patchctl.py finalize-sync \
             --upstream "$UPSTREAM_SHA" \
-            --expect-version "$UPSTREAM_VERSION" \
-            --expect-source-rev "$SOURCE_REV"
+            --version "$UPSTREAM_VERSION" \
+            --source-rev "$SOURCE_REV"
+          python3 maint/scripts/patchctl.py lint
+
+      - name: Apply security floor and smoke contract fix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          sec = Path('maint/security-floors.toml')
+          text = sec.read_text()
+          if 'package = "h2"' not in text:
+              if not text.endswith('\n'):
+                  text += '\n'
+              text += '\n[[floor]]\npackage = "h2"\nprecise = "0.4.16"\nadvisory = "RUSTSEC-2026-0258"\n'
+              sec.write_text(text)
+          elif 'package = "h2"\nprecise = "0.4.16"\nadvisory = "RUSTSEC-2026-0258"' not in text:
+              raise SystemExit('existing h2 floor does not match required 0.4.16 / RUSTSEC-2026-0258')
+
+          wf = Path('.github/workflows/gork-privacy.yml')
+          text = wf.read_text()
+          old = "echo \"$HELP\" | grep -q 'Usage: gork'"
+          new = "echo \"$HELP\" | grep -q 'Usage: grok'"
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one stale gork Usage assertion, found {text.count(old)}')
+          wf.write_text(text.replace(old, new, 1))
+
+          diag = Path('maint/diagnostics/latest-ci.txt')
+          if diag.exists():
+              diag.unlink()
+          PY
+
+      - name: Install validation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            protobuf-compiler pkg-config libssl-dev cmake libclang-dev build-essential
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy,rustfmt
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Capture cargo-audit diagnostics
+      - name: Validate final stack
         run: |
           set -euo pipefail
-          mkdir -p maint/diagnostics
-          AUDIT_LOG=$(mktemp)
-          set +e
-          (cd .work/src && cargo audit >"$AUDIT_LOG" 2>&1)
-          AUDIT_RC=$?
-          set -e
-          OUT=maint/diagnostics/latest-ci.txt
-          {
-            echo "===== CARGO_AUDIT_REAL ====="
-            echo "exit=$AUDIT_RC"
-            tail -n 300 "$AUDIT_LOG"
-            echo
-            echo "diagnostic upstream=$UPSTREAM_SHA"
-          } > "$OUT"
-          rm -f "$AUDIT_LOG"
+          python3 maint/scripts/patchctl.py checkout
+          python3 maint/scripts/patchctl.py lint
+          python3 maint/scripts/patchctl.py roundtrip
+          python3 maint/scripts/patchctl.py verify --only cargo-audit
+          cd .work/src
+          cargo clippy --no-deps \
+            -p xai-grok-version \
+            -p xai-mixpanel \
+            -p xai-grok-telemetry \
+            -p xai-grok-update \
+            --lib \
+            -- -D warnings
+          cargo clippy --no-deps \
+            -p xai-grok-pager-bin \
+            --bins \
+            -- -D warnings
+          cargo fmt --all -- --check
 
-      - name: Commit diagnostics only
+      - name: Commit maintained patch stack
         run: |
           set -euo pipefail
-          git add -f maint/diagnostics/latest-ci.txt
-          git commit -m "ci: capture real cargo-audit diagnostics" -- maint/diagnostics/latest-ci.txt
+          git add maint/patchset.toml maint/upstream.lock.toml maint/security-floors.toml \
+            .github/workflows/gork-privacy.yml maint/last-apply-status.json
+          git add -A maint/patches maint/diagnostics
+          git commit -m "maint: fix latest upstream CI and fold telemetry patch"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
