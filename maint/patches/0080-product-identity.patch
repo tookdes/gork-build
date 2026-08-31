@@ -8,6 +8,7 @@ Gork-Invariant: product-cli-gork
 Gork-Risk: medium
 ---
 diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-grok-pager-bin/Cargo.toml
+index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..37234bcedee20a0eb1af1039e9b8b7a43b28e5fa 100644
 --- a/crates/codegen/xai-grok-pager-bin/Cargo.toml
 +++ b/crates/codegen/xai-grok-pager-bin/Cargo.toml
 @@ -1,7 +1,11 @@
@@ -25,6 +26,7 @@ diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-g
  
  # Composition-root binary for the Grok Build TUI. The artifact is still named
 diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-grok-pager-bin/src/main.rs
+index 878e8fe1c3b2ea30adf1450727c0191f9e370c5f..878e8fe1c3b2ea30adf1450727c0191f9e370c5f 100644
 --- a/crates/codegen/xai-grok-pager-bin/src/main.rs
 +++ b/crates/codegen/xai-grok-pager-bin/src/main.rs
 @@ -1,6 +1,6 @@
@@ -54,6 +56,7 @@ diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-
              assert!(output.contains(env!("VERSION_WITH_COMMIT")));
              assert!(output.ends_with(expected_suffix), "{output:?}");
 diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
+index 919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd..919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd 100644
 --- a/crates/codegen/xai-grok-pager/src/app/cli.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
 @@ -1,6 +1,6 @@
@@ -77,6 +80,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-g
              .to_owned();
          Self::parse_from(std::iter::once(bin_name).chain(std::env::args().skip(1)))
 diff --git a/crates/codegen/xai-grok-pager/src/lib.rs b/crates/codegen/xai-grok-pager/src/lib.rs
+index b17889a8166641c8dd4dc645773076b311abf64d..b17889a8166641c8dd4dc645773076b311abf64d 100644
 --- a/crates/codegen/xai-grok-pager/src/lib.rs
 +++ b/crates/codegen/xai-grok-pager/src/lib.rs
 @@ -1 +1 @@
