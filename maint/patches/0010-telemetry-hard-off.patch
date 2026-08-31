@@ -39,7 +39,6 @@ index 08d06668f0482d1291e340d3c335980884fb4c01..e77042069ac3ab71e5b774ad664ffd51
  xai-mixpanel = { workspace = true }
  xai-grok-config = { workspace = true }
 diff --git a/crates/codegen/xai-grok-telemetry/src/client.rs b/crates/codegen/xai-grok-telemetry/src/client.rs
-index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b6179436ebed15 100644
 --- a/crates/codegen/xai-grok-telemetry/src/client.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/client.rs
 @@ -85,13 +85,16 @@ impl TelemetryClient {
@@ -50,7 +49,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
 -            config
 -                .mixpanel_token
 -                .as_ref()
--                .map(|token| Arc::new(Mixpanel::new(token.as_str())))
+-                .map(|token| Arc::new(Mixpanel::with_client(token.as_str(), http_client.clone())))
 +        // Gork Build: never construct a Mixpanel client or keep a first-party
 +        // events sink. `Mixpanel::{track,engage}` and [`track`] are also
 +        // no-ops as a second line of defense.
@@ -317,7 +316,6 @@ index 74a83a2eb5948c130aa9105805c8d1b5614004ca..250c01e2d3763bcbb88310053495cdd2
      let scrubber = Scrubber::from_env();
  
 diff --git a/crates/codegen/xai-mixpanel/src/lib.rs b/crates/codegen/xai-mixpanel/src/lib.rs
-index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5d8033536 100644
 --- a/crates/codegen/xai-mixpanel/src/lib.rs
 +++ b/crates/codegen/xai-mixpanel/src/lib.rs
 @@ -5,7 +5,6 @@
@@ -339,7 +337,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
      fn prepare_properties(
          &self,
          mut properties: HashMap<String, serde_json::Value>,
-@@ -57,58 +60,30 @@ impl Mixpanel {
+@@ -61,60 +64,30 @@ impl Mixpanel {
  
      /// Track an event. Properties should include `distinct_id`. The
      /// project `token` is injected after scrubbing, so it isn't redacted.
@@ -364,6 +362,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
 -
 -        self.client
 -            .post("https://api.mixpanel.com/track")
+-            .timeout(REQUEST_TIMEOUT)
 -            .form(&[("data", &encoded)])
 -            .send()
 -            .await?;
@@ -402,6 +401,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
 -
 -        self.client
 -            .post("https://api.mixpanel.com/engage")
+-            .timeout(REQUEST_TIMEOUT)
 -            .form(&[("data", &encoded)])
 -            .send()
 -            .await?;
@@ -415,4 +415,3 @@ base-commit: eb267feff13129e568df38fb6fdf0ceb65f735d6
 prerequisite-patch-id: 461d9a629c55db377161aa870929fbbc6cb08b71
 -- 
 2.50.1 (Apple Git-155)
-
