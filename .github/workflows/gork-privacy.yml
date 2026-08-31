@@ -248,7 +248,7 @@ jobs:
           HELP=$("$BIN" --help)
           echo "$HELP" | head -20
           echo "$HELP" | grep -q 'Gork Build TUI'
-          echo "$HELP" | grep -q 'Usage: gork'
+          echo "$HELP" | grep -q 'Usage: grok'
           echo "smoke ok"
 
       - name: Package linux-x64 like a GitHub Release
