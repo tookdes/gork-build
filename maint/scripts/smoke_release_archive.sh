@@ -209,8 +209,8 @@ if ! echo "$HELP_OUT" | grep -q 'Gork Build TUI'; then
   echo "FAIL: --help must contain 'Gork Build TUI'" >&2
   exit 1
 fi
-if ! echo "$HELP_OUT" | grep -q 'Usage: gork'; then
-  echo "FAIL: --help must contain 'Usage: gork'" >&2
+if ! echo "$HELP_OUT" | grep -q 'Usage: grok'; then
+  echo "FAIL: --help must contain 'Usage: grok'" >&2
   exit 1
 fi
 
