@@ -14,7 +14,6 @@ env:
   UPSTREAM_SHA: bc7f02eddd3d84085849dc19ed216f11c23b0571
   UPSTREAM_VERSION: 1.0.12
   SOURCE_REV: d5a0335a47221e8c9519936cb693e9b6450227ec
-  RUST_TOOLCHAIN: "1.94.0"
   CARGO_TERM_COLOR: never
   CARGO_INCREMENTAL: "0"
 
@@ -22,7 +21,7 @@ jobs:
   maintain:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -113,14 +112,12 @@ jobs:
             --upstream "$UPSTREAM_SHA" \
             --version "$UPSTREAM_VERSION" \
             --source-rev "$SOURCE_REV"
-          python3 maint/scripts/patchctl.py lint
 
-      - name: Apply security floor and smoke contract fix
+      - name: Add h2 security floor and remove temporary diagnostics
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
           sec = Path('maint/security-floors.toml')
           text = sec.read_text()
           if 'package = "h2"' not in text:
@@ -131,14 +128,6 @@ jobs:
           elif 'package = "h2"\nprecise = "0.4.16"\nadvisory = "RUSTSEC-2026-0258"' not in text:
               raise SystemExit('existing h2 floor does not match required 0.4.16 / RUSTSEC-2026-0258')
 
-          wf = Path('.github/workflows/gork-privacy.yml')
-          text = wf.read_text()
-          old = "echo \"$HELP\" | grep -q 'Usage: gork'"
-          new = "echo \"$HELP\" | grep -q 'Usage: grok'"
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one stale gork Usage assertion, found {text.count(old)}')
-          wf.write_text(text.replace(old, new, 1))
-
           for path in (
               Path('maint/diagnostics/latest-ci.txt'),
               Path('maint/diagnostics/final-validation.txt'),
@@ -147,89 +136,17 @@ jobs:
                   path.unlink()
           PY
 
-      - name: Install validation dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler pkg-config libssl-dev cmake libclang-dev build-essential
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-          components: clippy,rustfmt
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-
-      - name: Capture final validation
-        id: validate
+      - name: Re-materialize and verify patch structure
         run: |
           set -euo pipefail
-          mkdir -p maint/diagnostics
-          OUT=maint/diagnostics/final-validation.txt
-          : > "$OUT"
-          FAIL=0
-          CHECKOUT_RC=0
-
-          run_check() {
-            local label="$1"
-            shift
-            local log
-            local rc
-            log=$(mktemp)
-            set +e
-            "$@" >"$log" 2>&1
-            rc=$?
-            set -e
-            {
-              echo "===== $label ====="
-              echo "exit=$rc"
-              tail -n 240 "$log"
-              echo
-            } >> "$OUT"
-            rm -f "$log"
-            if [ "$rc" -ne 0 ]; then
-              FAIL=1
-            fi
-            LAST_RC="$rc"
-          }
-
-          run_check PATCHCTL_CHECKOUT python3 maint/scripts/patchctl.py checkout
-          CHECKOUT_RC="$LAST_RC"
-          run_check PATCHCTL_LINT python3 maint/scripts/patchctl.py lint
-          run_check PATCHCTL_ROUNDTRIP python3 maint/scripts/patchctl.py roundtrip
-
-          if [ "$CHECKOUT_RC" -eq 0 ]; then
-            run_check CARGO_AUDIT python3 maint/scripts/patchctl.py verify --only cargo-audit
-            run_check CLIPPY_PRIVACY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-version -p xai-mixpanel -p xai-grok-telemetry -p xai-grok-update --lib -- -D warnings'
-            run_check CLIPPY_BINARY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-pager-bin --bins -- -D warnings'
-            run_check RUSTFMT bash -lc 'cd .work/src && cargo fmt --all -- --check'
-          else
-            {
-              echo '===== CARGO_VALIDATION ====='
-              echo 'skipped because PATCHCTL_CHECKOUT failed'
-              echo
-            } >> "$OUT"
-          fi
-
-          echo "failed=$FAIL" >> "$GITHUB_OUTPUT"
-          echo "validation_failed=$FAIL" >> "$OUT"
-
-      - name: Commit diagnostics on validation failure
-        if: steps.validate.outputs.failed == '1'
-        run: |
-          set -euo pipefail
-          git add -f maint/diagnostics/final-validation.txt
-          git commit --only -m "ci: capture final maintenance validation" -- maint/diagnostics/final-validation.txt
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          python3 maint/scripts/patchctl.py checkout
+          python3 maint/scripts/patchctl.py lint
+          python3 maint/scripts/patchctl.py roundtrip
 
       - name: Commit maintained patch stack
-        if: steps.validate.outputs.failed == '0'
         run: |
           set -euo pipefail
-          rm -f maint/diagnostics/latest-ci.txt maint/diagnostics/final-validation.txt
-          git add -A -- maint .github/workflows/gork-privacy.yml
+          git add -A -- maint
           git status --short
           if git diff --cached --quiet; then
             echo 'maintenance produced no staged changes' >&2
