@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 07:30:00 +0000
+Subject: [PATCH] rustfmt-unblock: normalize rebased privacy and strict changes
+
+Gork-Patch-Id: rustfmt-unblock
+Gork-Invariant: rustfmt-clean
+Gork-Risk: critical
+---
+ crates/codegen/xai-grok-sampler/src/client.rs | 19 +++++++++++++------
+ .../xai-grok-shell/src/agent/config.rs        | 17 ++++++-----------
+ .../xai-grok-shell/src/agent/config_tests.rs  |  5 ++++-
+ .../xai-grok-update/src/auto_update.rs        | 17 ++++++-----------
+ crates/codegen/xai-grok-version/src/lib.rs    |  1 -
+ 5 files changed, 29 insertions(+), 30 deletions(-)
+
+diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+index b39570ee934ce6b16c8b1afe7477518d40bf7ee4..806d00b5312a6e0f03bd200997a8b2113fa5d5d1 100644
+--- a/crates/codegen/xai-grok-sampler/src/client.rs
++++ b/crates/codegen/xai-grok-sampler/src/client.rs
+@@ -357,7 +357,9 @@ fn sanitize_strict_chat_body(body: &mut serde_json::Value) {
+     for mut message in std::mem::take(messages) {
+         let is_tool = message.get("role").and_then(serde_json::Value::as_str) == Some("tool");
+         if !is_tool && !pending_images.is_empty() {
+-            rewritten.push(strict_tool_image_message(std::mem::take(&mut pending_images)));
++            rewritten.push(strict_tool_image_message(std::mem::take(
++                &mut pending_images,
++            )));
+         }
+ 
+         if let Some(message_object) = message.as_object_mut() {
+@@ -440,9 +442,7 @@ fn sanitize_strict_response_body(body: &mut serde_json::Value) {
+ 
+ fn is_grok_only_header(name: &str) -> bool {
+     let lower = name.to_ascii_lowercase();
+-    lower.starts_with("x-grok-")
+-        || lower == "x-compactions-remaining"
+-        || lower == "x-compaction-at"
++    lower.starts_with("x-grok-") || lower == "x-compactions-remaining" || lower == "x-compaction-at"
+ }
+ 
+ /// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
+@@ -2446,7 +2446,11 @@ mod tests {
+         assert_eq!(body["max_completion_tokens"], serde_json::json!(123));
+         assert!(body.get("search_parameters").is_none());
+         let messages = body["messages"].as_array().unwrap();
+-        assert!(messages.iter().all(|message| message.get("model_id").is_none()));
++        assert!(
++            messages
++                .iter()
++                .all(|message| message.get("model_id").is_none())
++        );
+         assert!(
+             messages
+                 .iter()
+@@ -2474,7 +2478,10 @@ mod tests {
+         });
+         sanitize_strict_response_body(&mut body);
+         assert!(body.get("stream_tool_calls").is_none());
+-        assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
++        assert_eq!(
++            body["include"],
++            serde_json::json!(["reasoning.encrypted_content"])
++        );
+         assert_eq!(body["tools"].as_array().unwrap().len(), 2);
+         assert!(
+             body["tools"]
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+index 21e321b0e9a7746708ea8019c242ba0558feaa08..fcbdd3bdb578169b92c09d41c4cf13ada683df69 100644
+--- a/crates/codegen/xai-grok-shell/src/agent/config.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
+@@ -13,9 +13,7 @@ use std::num::NonZeroU64;
+ use std::path::PathBuf;
+ use std::sync::Arc;
+ use xai_grok_agent::prompt::skills::SkillsConfig;
+-use xai_grok_sampler::{
+-    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
+-};
++use xai_grok_sampler::{AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig};
+ use xai_grok_sampling_types::{
+     CompactionAtTokens, CompactionsRemaining, REASONING_EFFORT_META_KEY,
+     REASONING_EFFORTS_META_KEY, ReasoningEffort, ReasoningEffortOption,
+@@ -4159,15 +4157,12 @@ impl ConfigModelOverride {
+         // of those public structs. SamplingClient consumes this reserved key
+         // before HTTP header validation, so it can never reach the wire.
+         if let Some(mode) = self.openai_compat {
+-            entry
+-                .info
+-                .extra_headers
+-                .shift_remove(OPENAI_COMPAT_MARKER);
++            entry.info.extra_headers.shift_remove(OPENAI_COMPAT_MARKER);
+             if mode == OpenAiCompat::Strict {
+-                entry.info.extra_headers.insert(
+-                    OPENAI_COMPAT_MARKER.to_owned(),
+-                    "strict".to_owned(),
+-                );
++                entry
++                    .info
++                    .extra_headers
++                    .insert(OPENAI_COMPAT_MARKER.to_owned(), "strict".to_owned());
+             }
+         }
+         if !self.query_params.is_empty() {
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+index b74f159ffdeab094a383d7b860bd05ed6fa55ef0..fca0bef5ab296a089b2c9290326a7090624e113a 100644
+--- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+@@ -4238,7 +4238,10 @@ fn privacy_build_feedback_requires_explicit_env_opt_in() {
+         ..Default::default()
+     });
+     let r = cfg.resolve_feedback();
+-    assert!(!r.value, "config/remote must not enable feedback in privacy builds");
++    assert!(
++        !r.value,
++        "config/remote must not enable feedback in privacy builds"
++    );
+     assert_eq!(r.source, ConfigSource::Default);
+     unsafe { std::env::set_var("GROK_FEEDBACK_ENABLED", "1") };
+     let r = cfg.resolve_feedback();
+diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/xai-grok-update/src/auto_update.rs
+index 20b603f42a1dfc9be62588b34417e72952c6e48e..664292690ca95d17cfd5d58722ae145c64349896 100644
+--- a/crates/codegen/xai-grok-update/src/auto_update.rs
++++ b/crates/codegen/xai-grok-update/src/auto_update.rs
+@@ -3037,7 +3037,9 @@ mod privacy_tests {
+ 
+     #[tokio::test]
+     async fn ensure_latest_on_disk_no_install_under_privacy() {
+-        let out = ensure_latest_on_disk(&privacy_update_config()).await.unwrap();
++        let out = ensure_latest_on_disk(&privacy_update_config())
++            .await
++            .unwrap();
+         assert!(out.installed.is_none());
+         assert!(!out.relaunch_needed);
+     }
+@@ -3050,16 +3052,9 @@ mod privacy_tests {
+     #[tokio::test]
+     async fn explicit_run_update_refuses_under_privacy() {
+         let mut cfg = privacy_update_config();
+-        let err = run_update(
+-            false,
+-            None,
+-            None,
+-            &mut cfg,
+-            CliUpdateTrigger::UserCommand,
+-        )
+-        .await
+-        .expect_err("explicit update must be blocked before any vendor request");
++        let err = run_update(false, None, None, &mut cfg, CliUpdateTrigger::UserCommand)
++            .await
++            .expect_err("explicit update must be blocked before any vendor request");
+         assert!(format!("{err:#}").contains("never installs from vendor"));
+     }
+ }
+-
+diff --git a/crates/codegen/xai-grok-version/src/lib.rs b/crates/codegen/xai-grok-version/src/lib.rs
+index 73300dac812e3b6cdc71879274c9385401a26768..85a9e1d3f5f18cc5410d63f6f250d371d758f0a0 100644
+--- a/crates/codegen/xai-grok-version/src/lib.rs
++++ b/crates/codegen/xai-grok-version/src/lib.rs
+@@ -39,7 +39,6 @@ pub fn coding_data_retention_locked_opt_out() -> bool {
+     PRIVACY_BUILD
+ }
+ 
+-
+ pub const TEST_VERSION_ENV: &str = "GROK_TEST_VERSION";
+ 
+ pub const VERSION: &str = match option_env!("GROK_VERSION") {
+
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: 85278b92aff49dd05eddfe8f5940f6cf72f2c82e
+prerequisite-patch-id: b46eb1b08826e4374b4e19bf895544b01b5e2db8
+prerequisite-patch-id: ed9f138b27104ad53710967cf3f7c67772b11ae4
+prerequisite-patch-id: 449712f7840b4a0010f81cbb0dac019ecf7f1a49
+-- 
+2.55.0
+

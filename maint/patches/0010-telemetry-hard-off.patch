@@ -7,16 +7,16 @@ Gork-Patch-Id: telemetry-hard-off
 Gork-Invariant: product-telemetry-disabled
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-telemetry/Cargo.toml  |   5 +-
+ crates/codegen/xai-grok-telemetry/Cargo.toml  |   6 +-
  .../codegen/xai-grok-telemetry/src/client.rs  | 115 ++++++++++++++++--
  .../codegen/xai-grok-telemetry/src/config.rs  |  44 +++----
  .../xai-grok-telemetry/src/otel_layer/mod.rs  |   5 +
  .../codegen/xai-grok-telemetry/src/sentry.rs  |  11 +-
- crates/codegen/xai-mixpanel/src/lib.rs        |  57 +++------
- 6 files changed, 154 insertions(+), 83 deletions(-)
+ crates/codegen/xai-mixpanel/src/lib.rs        |  61 +++-------
+ 6 files changed, 154 insertions(+), 88 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-telemetry/Cargo.toml b/crates/codegen/xai-grok-telemetry/Cargo.toml
-index 08d06668f0482d1291e340d3c335980884fb4c01..e77042069ac3ab71e5b774ad664ffd51a2de8b69 100644
+index b24cb62d0698add82df6f38e5daedac651ea4fe8..99339a891f40c8f30ec4a4a48215644d85b848c2 100644
 --- a/crates/codegen/xai-grok-telemetry/Cargo.toml
 +++ b/crates/codegen/xai-grok-telemetry/Cargo.toml
 @@ -3,8 +3,8 @@ license = "Apache-2.0"
@@ -38,8 +38,16 @@ index 08d06668f0482d1291e340d3c335980884fb4c01..e77042069ac3ab71e5b774ad664ffd51
  xai-grok-secrets = { workspace = true }
  xai-mixpanel = { workspace = true }
  xai-grok-config = { workspace = true }
+@@ -58,7 +59,6 @@ xai-grok-session-events = { workspace = true }
+ # mapping lives next to the trace-upload lifecycle events it labels.
+ xai-file-utils = { path = "../xai-file-utils" }
+ xai-tty-utils = { workspace = true }
+-xai-grok-version = { workspace = true }
+ whoami = { workspace = true }
+ uuid = { workspace = true, features = ["v5", "v7"] }
+ obfstr = { workspace = true, optional = true }
 diff --git a/crates/codegen/xai-grok-telemetry/src/client.rs b/crates/codegen/xai-grok-telemetry/src/client.rs
-index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b6179436ebed15 100644
+index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5ce55cf3a2 100644
 --- a/crates/codegen/xai-grok-telemetry/src/client.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/client.rs
 @@ -85,13 +85,16 @@ impl TelemetryClient {
@@ -50,7 +58,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
 -            config
 -                .mixpanel_token
 -                .as_ref()
--                .map(|token| Arc::new(Mixpanel::new(token.as_str())))
+-                .map(|token| Arc::new(Mixpanel::with_client(token.as_str(), http_client.clone())))
 +        // Gork Build: never construct a Mixpanel client or keep a first-party
 +        // events sink. `Mixpanel::{track,engage}` and [`track`] are also
 +        // no-ops as a second line of defense.
@@ -76,7 +84,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
              mixpanel,
              user_id,
              team_id,
-@@ -181,6 +184,10 @@ impl UserContext {
+@@ -289,6 +292,10 @@ pub const RESERVED_EVENT_KEYS: &[&str] = &[
  
  /// Core telemetry emitter. Routes to product events + Mixpanel.
  pub async fn track(event_name: &str, request_id: &str, ctx: &UserContext, mut metadata: Metadata) {
@@ -87,7 +95,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
      let client = {
          let guard = lock.lock().unwrap_or_else(|err| err.into_inner());
-@@ -349,7 +356,7 @@ pub fn init(
+@@ -472,7 +479,7 @@ pub fn init(
  ) {
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
      let mut guard = lock.lock().unwrap_or_else(|err| err.into_inner());
@@ -96,7 +104,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
          None
      } else {
          Some(TelemetryClient::from_config(
-@@ -382,7 +389,7 @@ pub fn init_if_needed(
+@@ -505,7 +512,7 @@ pub fn init_if_needed(
      subscription_tier: Option<String>,
      http_client: reqwest::Client,
  ) {
@@ -105,7 +113,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
          return;
      }
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
-@@ -427,6 +434,9 @@ mod tests {
+@@ -551,6 +558,9 @@ mod tests {
  
      /// SessionMetrics must not attempt Mixpanel profile engage — sync_profile
      /// is a no-op unless mode is fully Enabled.
@@ -115,7 +123,7 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
      #[test]
      fn sync_profile_is_noop_in_session_metrics_mode() {
          // No tokio runtime here BY DESIGN: if the gate wrongly falls through,
-@@ -469,12 +479,93 @@ mod tests {
+@@ -593,12 +603,93 @@ mod tests {
          // Explicit call must no-op too (init already invoked it once).
          sync_profile();
          assert!(
@@ -212,10 +220,10 @@ index 49eb1691081af33ddacc67ff106c7c3c8572c547..cb0c6ba1a1d0abd2c403c2ff23b61794
      /// the old `unwrap_or(event_name)` fallback).
      #[test]
 diff --git a/crates/codegen/xai-grok-telemetry/src/config.rs b/crates/codegen/xai-grok-telemetry/src/config.rs
-index 04ee011e27289ff70ac00a4e85b0b9c921ae3e18..dd5ded3f29120830e7bb44ec46b1f8ff9b9fb8e0 100644
+index e3d07f344bad05e50849a10f24f839aa6eb987f6..6fbe549033b4b7499cd6ac9c896848f3e055188c 100644
 --- a/crates/codegen/xai-grok-telemetry/src/config.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/config.rs
-@@ -148,23 +148,19 @@ fn build_env_default(value: Option<&'static str>) -> Option<String> {
+@@ -151,23 +151,19 @@ fn build_env_default(value: Option<&'static str>) -> Option<String> {
  }
  impl Default for TelemetryConfig {
      fn default() -> Self {
@@ -251,7 +259,7 @@ index 04ee011e27289ff70ac00a4e85b0b9c921ae3e18..dd5ded3f29120830e7bb44ec46b1f8ff
              otel_enabled: None,
              otel_metrics_exporter: None,
              otel_logs_exporter: None,
-@@ -245,14 +241,14 @@ mod tests {
+@@ -251,14 +247,14 @@ mod tests {
          assert_eq!(build_env_default(Some(" key ")), Some("key".to_owned()));
      }
      #[test]
@@ -291,7 +299,7 @@ index f030db3beebe8653be5393b4f568dd5669a999da..dc5f00c88d1aa6f0e43c23500ac0b95a
          instrumentation::InstrumentationMode::Server => build_server_provider(client, config),
          _ => SdkTracerProvider::builder().build(),
 diff --git a/crates/codegen/xai-grok-telemetry/src/sentry.rs b/crates/codegen/xai-grok-telemetry/src/sentry.rs
-index 74a83a2eb5948c130aa9105805c8d1b5614004ca..250c01e2d3763bcbb88310053495cdd29904e412 100644
+index 801aa2b7b2ffee757bcf2ca915c70209a6cbd075..bbf43f12846017e587b8739633fdc6f61ec83a85 100644
 --- a/crates/codegen/xai-grok-telemetry/src/sentry.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/sentry.rs
 @@ -32,14 +32,17 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -317,7 +325,7 @@ index 74a83a2eb5948c130aa9105805c8d1b5614004ca..250c01e2d3763bcbb88310053495cdd2
      let scrubber = Scrubber::from_env();
  
 diff --git a/crates/codegen/xai-mixpanel/src/lib.rs b/crates/codegen/xai-mixpanel/src/lib.rs
-index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5d8033536 100644
+index cd748e55d7402283c770d717da0bd74365f85ed8..a4b950afa7aa1d084d004d81657f84e490143b8f 100644
 --- a/crates/codegen/xai-mixpanel/src/lib.rs
 +++ b/crates/codegen/xai-mixpanel/src/lib.rs
 @@ -5,7 +5,6 @@
@@ -328,7 +336,16 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
  use std::collections::HashMap;
  
  /// Mixpanel client for sending track events.
-@@ -44,6 +43,10 @@ impl Mixpanel {
+@@ -24,8 +23,6 @@ pub enum Error {
+     Json(#[from] serde_json::Error),
+ }
+ 
+-const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+-
+ impl Mixpanel {
+     /// Create a new Mixpanel client with the given project token.
+     #[allow(clippy::disallowed_methods)] // transport-neutral crate; the grok CLI injects a policy client via with_client
+@@ -47,6 +44,10 @@ impl Mixpanel {
      /// Scrub property string values in place, then inject the project
      /// token. Split out from [`Self::track`] so the scrub-then-inject
      /// ordering is testable.
@@ -339,7 +356,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
      fn prepare_properties(
          &self,
          mut properties: HashMap<String, serde_json::Value>,
-@@ -57,58 +60,30 @@ impl Mixpanel {
+@@ -60,60 +61,30 @@ impl Mixpanel {
  
      /// Track an event. Properties should include `distinct_id`. The
      /// project `token` is injected after scrubbing, so it isn't redacted.
@@ -364,6 +381,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
 -
 -        self.client
 -            .post("https://api.mixpanel.com/track")
+-            .timeout(REQUEST_TIMEOUT)
 -            .form(&[("data", &encoded)])
 -            .send()
 -            .await?;
@@ -402,6 +420,7 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
 -
 -        self.client
 -            .post("https://api.mixpanel.com/engage")
+-            .timeout(REQUEST_TIMEOUT)
 -            .form(&[("data", &encoded)])
 -            .send()
 -            .await?;
@@ -411,8 +430,8 @@ index 94a1a836706b674827af4fcde1c61bfab17505d1..437e3634849f2e8ec7b473111b2e36c5
      }
  }
 
-base-commit: eb267feff13129e568df38fb6fdf0ceb65f735d6
-prerequisite-patch-id: 461d9a629c55db377161aa870929fbbc6cb08b71
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 
