@@ -8,6 +8,7 @@ Gork-Invariant: retention-locked-opt-out
 Gork-Risk: critical
 ---
 diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen/xai-grok-pager/src/settings/defs.rs
+index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/defs.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/defs.rs
 @@ -124,19 +124,12 @@
@@ -37,6 +38,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen
  // ---------------------------------------------------------------------------
  // Plan-mode catalog.
 diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen/xai-grok-pager/src/settings/defs.rs
+index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/defs.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/defs.rs
 @@ -1170,18 +1170,10 @@
@@ -69,6 +71,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen
                  "opt-out",
              ],
 diff --git a/crates/codegen/xai-grok-pager/src/settings/registry.rs b/crates/codegen/xai-grok-pager/src/settings/registry.rs
+index 070dc61ee4fa0a826542cf92f176063f223d41c9..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/registry.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/registry.rs
 @@ -650,11 +650,7 @@
@@ -86,6 +89,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/settings/registry.rs b/crates/cod
          "plan_mode" => Some(SettingValue::Enum(
              crate::app::actions::PlanModeKind::from_bool(pager.plan_mode_active).as_canonical(),
 diff --git a/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs b/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
+index 200515d123b7169b5f17e1bf13518466d7f82b3f..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
 +++ b/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
 @@ -1,4 +1,4 @@
@@ -104,6 +108,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs b/crate
          usage: "/privacy",
      }
 diff --git a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
+index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
 +++ b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
 @@ -4800,4 +4800,4 @@
@@ -135,6 +140,7 @@ diff --git a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs b/crates/codege
      );
  }
 diff --git a/crates/codegen/xai-grok-shell/src/auth/manager.rs b/crates/codegen/xai-grok-shell/src/auth/manager.rs
+index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/manager.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/manager.rs
 @@ -863,6 +863,9 @@
@@ -158,6 +164,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/auth/manager.rs b/crates/codegen/
              .is_some_and(|a| !a.is_data_collection_disabled())
      }
 diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
+index aae944c9a7028c2e873a70dff76db3faeaaac0de..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 @@ -415,64 +415,44 @@
@@ -245,6 +252,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/co
 +    assert!(!mgr.allows_data_collection());
  }
 diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
+index aae944c9a7028c2e873a70dff76db3faeaaac0de..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 @@ -3167,7 +3167,7 @@
@@ -257,6 +265,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/co
      assert!(auth.is_zdr_team(), "team_blocked_reasons must be merged");
      assert!(auth.coding_data_retention_opt_out);
 diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
+index aae944c9a7028c2e873a70dff76db3faeaaac0de..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 @@ -3225,4 +3225,4 @@
@@ -266,6 +275,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/co
 -    assert!(!auth.is_data_collection_disabled());
 +    assert!(auth.is_data_collection_disabled());
 diff --git a/crates/codegen/xai-grok-shell/src/auth/model.rs b/crates/codegen/xai-grok-shell/src/auth/model.rs
+index a05c8a609a1dc549524ffb0181d14cd5266f30b4..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/model.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/model.rs
 @@ -183,5 +183,8 @@
@@ -278,6 +288,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/auth/model.rs b/crates/codegen/xa
          self.is_zdr_team() || self.coding_data_retention_opt_out
      }
 diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
+index 9161dc76ce6d63b395a12dedac080ce065fc6815..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 +++ b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 @@ -27,4 +27,16 @@
@@ -305,6 +316,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/co
 +        "codingDataRetentionOptOut": opt_out,
      });
 diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
+index 9161dc76ce6d63b395a12dedac080ce065fc6815..0000000000000000000000000000000000000000 100644
 --- a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 +++ b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 @@ -82,7 +82,7 @@
