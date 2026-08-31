@@ -37,10 +37,6 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..00000000000000000000000000000000
  
  // ---------------------------------------------------------------------------
  // Plan-mode catalog.
-diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen/xai-grok-pager/src/settings/defs.rs
-index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..0000000000000000000000000000000000000000 100644
---- a/crates/codegen/xai-grok-pager/src/settings/defs.rs
-+++ b/crates/codegen/xai-grok-pager/src/settings/defs.rs
 @@ -1170,18 +1170,10 @@
 -        // SHELL-owned. Persisted in auth metadata (not config.toml).
 -        // Reads from `PagerLocalSnapshot.coding_data_sharing_opt_out`.
@@ -251,10 +247,6 @@ index aae944c9a7028c2e873a70dff76db3faeaaac0de..00000000000000000000000000000000
 +    assert!(mgr.is_data_collection_disabled());
 +    assert!(!mgr.allows_data_collection());
  }
-diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
-index aae944c9a7028c2e873a70dff76db3faeaaac0de..0000000000000000000000000000000000000000 100644
---- a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
-+++ b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 @@ -3167,7 +3167,7 @@
          key: "tok".into(),
          ..GrokAuth::test_default()
@@ -264,10 +256,6 @@ index aae944c9a7028c2e873a70dff76db3faeaaac0de..00000000000000000000000000000000
      mgr.enrich_auth_inline(&mut auth).await;
      assert!(auth.is_zdr_team(), "team_blocked_reasons must be merged");
      assert!(auth.coding_data_retention_opt_out);
-diff --git a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
-index aae944c9a7028c2e873a70dff76db3faeaaac0de..0000000000000000000000000000000000000000 100644
---- a/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
-+++ b/crates/codegen/xai-grok-shell/src/auth/manager_tests.rs
 @@ -3225,4 +3225,4 @@
      let before = auth.clone();
      mgr.enrich_auth_inline(&mut auth).await;
@@ -315,10 +303,6 @@ index 9161dc76ce6d63b395a12dedac080ce065fc6815..00000000000000000000000000000000
 -        "codingDataRetentionOptOut": params.coding_data_retention_opt_out,
 +        "codingDataRetentionOptOut": opt_out,
      });
-diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
-index 9161dc76ce6d63b395a12dedac080ce065fc6815..0000000000000000000000000000000000000000 100644
---- a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
-+++ b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 @@ -82,7 +82,7 @@
      let mut updated = auth.clone();
 -    updated.coding_data_retention_opt_out = params.coding_data_retention_opt_out;
