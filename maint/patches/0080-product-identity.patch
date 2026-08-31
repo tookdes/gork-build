@@ -1,12 +1,16 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
 Date: Mon, 31 Aug 2026 03:30:00 +0000
-Subject: [PATCH] product-identity: ship the gork binary target
+Subject: [PATCH] product-identity: ship the gork CLI surface
 
 Gork-Patch-Id: product-identity
 Gork-Invariant: product-cli-gork
 Gork-Risk: medium
 ---
+ crates/codegen/xai-grok-pager-bin/Cargo.toml | 4 ++--
+ crates/codegen/xai-grok-pager/src/app/cli.rs | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
 diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-grok-pager-bin/Cargo.toml
 index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539061aa1a1 100644
 --- a/crates/codegen/xai-grok-pager-bin/Cargo.toml
@@ -31,5 +35,18 @@ index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539
  path = "src/main.rs"
  
  [dependencies]
+diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
+--- a/crates/codegen/xai-grok-pager/src/app/cli.rs
++++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
+@@ -398,7 +398,7 @@
+ #[derive(Debug, Clone, Parser)]
+ #[command(
+-    name = "grok",
++    name = "gork",
+     version = xai_grok_version::full_version(),
+-    about = "Grok Build TUI",
++    about = "Gork Build TUI",
+     disable_version_flag = true,
+     next_display_order = None,
 -- 
 2.51.0
