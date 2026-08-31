@@ -189,8 +189,8 @@ VERSION_OUT="$("$BIN" --version 2>&1)" || {
   exit 1
 }
 echo "$VERSION_OUT"
-if ! echo "$VERSION_OUT" | grep -qiE 'gork'; then
-  echo "FAIL: --version must mention gork/Gork" >&2
+if ! echo "$VERSION_OUT" | grep -qiE 'grok'; then
+  echo "FAIL: --version must mention grok" >&2
   exit 1
 fi
 if [[ -n "$EXPECT_VERSION" ]] && ! echo "$VERSION_OUT" | grep -Fq "$EXPECT_VERSION"; then
