@@ -7,11 +7,20 @@ Gork-Patch-Id: retention-opt-out
 Gork-Invariant: retention-locked-opt-out
 Gork-Risk: critical
 ---
+ .../xai-grok-pager/src/settings/defs.rs       | 34 +++++--------------
+ .../xai-grok-pager/src/settings/registry.rs   |  8 ++---
+ .../src/slash/commands/privacy.rs             |  5 ++-
+ .../xai-grok-pager/tests/settings_e2e.rs      | 18 +++-------
+ .../xai-grok-shell/src/auth/manager.rs        |  6 ++++
+ .../codegen/xai-grok-shell/src/auth/model.rs  |  3 ++
+ .../xai-grok-shell/src/extensions/privacy.rs  | 18 ++++++++--
+ 7 files changed, 41 insertions(+), 51 deletions(-)
+
 diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen/xai-grok-pager/src/settings/defs.rs
-index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..0000000000000000000000000000000000000000 100644
+index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..2ff93d01c39543b39371a20a23111e3ebac68d45 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/defs.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/defs.rs
-@@ -124,19 +124,12 @@
+@@ -121,19 +121,12 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
  // `supports_preview: false` because toggling fires an async ACP call that can fail. Commit on Enter only.
  // ---------------------------------------------------------------------------
  
@@ -37,7 +46,10 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..00000000000000000000000000000000
  
  // ---------------------------------------------------------------------------
  // Plan-mode catalog.
-@@ -1170,18 +1170,10 @@
+@@ -1167,21 +1160,13 @@ pub fn default_settings() -> Vec<SettingMeta> {
+             restart_required: false,
+             hidden_in_minimal: false,
+         },
 -        // SHELL-owned. Persisted in auth metadata (not config.toml).
 -        // Reads from `PagerLocalSnapshot.coding_data_sharing_opt_out`.
 -        // The default "opt-out" matches `AuthEntry::coding_data_retention_opt_out = true`
@@ -59,18 +71,20 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..00000000000000000000000000000000
              keywords: &[
                  "privacy",
                  "data",
-@@ -1189,6 +1181,5 @@
+@@ -1189,7 +1174,6 @@ pub fn default_settings() -> Vec<SettingMeta> {
                  "coding",
                  "retention",
                  "training",
 -                "opt-in",
                  "opt-out",
              ],
+             kind: SettingKind::Enum {
 diff --git a/crates/codegen/xai-grok-pager/src/settings/registry.rs b/crates/codegen/xai-grok-pager/src/settings/registry.rs
-index 070dc61ee4fa0a826542cf92f176063f223d41c9..0000000000000000000000000000000000000000 100644
+index 070dc61ee4fa0a826542cf92f176063f223d41c9..2aef2b671d22ae2c60d5f5e4b2f7bb434dbfd3a6 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/registry.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/registry.rs
-@@ -650,11 +650,7 @@
+@@ -663,12 +663,8 @@ pub fn current_value_for(
+         )),
          // max_thoughts_width: `u16` widened to `i64`.
          "max_thoughts_width" => Some(SettingValue::Int(ui.max_thoughts_width as i64)),
 -        // coding_data_sharing: inverts the `_opt_out` bool.
@@ -85,7 +99,7 @@ index 070dc61ee4fa0a826542cf92f176063f223d41c9..00000000000000000000000000000000
          "plan_mode" => Some(SettingValue::Enum(
              crate::app::actions::PlanModeKind::from_bool(pager.plan_mode_active).as_canonical(),
 diff --git a/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs b/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
-index 200515d123b7169b5f17e1bf13518466d7f82b3f..0000000000000000000000000000000000000000 100644
+index 200515d123b7169b5f17e1bf13518466d7f82b3f..87d0b7bbfdb9c29a85c3498cdbdfee4413cbb0d5 100644
 --- a/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
 +++ b/crates/codegen/xai-grok-pager/src/slash/commands/privacy.rs
 @@ -1,4 +1,4 @@
@@ -94,7 +108,7 @@ index 200515d123b7169b5f17e1bf13518466d7f82b3f..00000000000000000000000000000000
  
  use crate::app::actions::Action;
  use crate::slash::command::{CommandExecCtx, CommandResult, SlashCommand, slash_meta};
-@@ -11,7 +11,6 @@
+@@ -11,8 +11,7 @@ pub struct PrivacyCommand;
  impl SlashCommand for PrivacyCommand {
      slash_meta! {
          name: "privacy",
@@ -103,17 +117,21 @@ index 200515d123b7169b5f17e1bf13518466d7f82b3f..00000000000000000000000000000000
 +        description: "Show coding data retention status (locked to opt-out)",
          usage: "/privacy",
      }
+ 
 diff --git a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
-index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..0000000000000000000000000000000000000000 100644
+index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..c700376e8e0d9d019972d973e7a6c392ae98e75f 100644
 --- a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
 +++ b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
-@@ -4800,4 +4800,4 @@
+@@ -4823,7 +4823,7 @@ fn pr9_picker_seeds_choices_idx_from_pager_snapshot_opt_out_true() {
+     }
+ }
+ 
 -/// Exactly 2 canonical choices: {opt-in, opt-out}.
 +/// Gork Build exposes only the locked opt-out canonical.
  #[test]
  fn pr9_coding_data_sharing_choices_use_canonical_strings() {
      let reg = SettingsRegistry::defaults();
-@@ -4807,18 +4807,8 @@
+@@ -4833,19 +4833,9 @@ fn pr9_coding_data_sharing_choices_use_canonical_strings() {
          _ => panic!("coding_data_sharing must be Enum"),
      };
      assert_eq!(
@@ -135,11 +153,12 @@ index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..00000000000000000000000000000000
 +        "Gork Build locks coding_data_sharing to a single opt-out choice",
      );
  }
+ 
 diff --git a/crates/codegen/xai-grok-shell/src/auth/manager.rs b/crates/codegen/xai-grok-shell/src/auth/manager.rs
-index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..0000000000000000000000000000000000000000 100644
+index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..42c4900b9688b1cd9b478061d2bbd97a523ec3b4 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/manager.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/manager.rs
-@@ -863,6 +863,9 @@
+@@ -863,6 +863,9 @@ impl AuthManager {
      /// that must not act on unknown privacy state should use the fail-closed
      /// [`Self::allows_data_collection`] instead.
      pub(crate) fn is_data_collection_disabled(&self) -> bool {
@@ -149,7 +168,7 @@ index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..00000000000000000000000000000000
          self.current_or_expired()
              .is_some_and(|a| a.is_data_collection_disabled())
      }
-@@ -873,6 +876,9 @@
+@@ -873,6 +876,9 @@ impl AuthManager {
      /// disabled — nothing may leave the machine while the privacy state is
      /// unknown.
      pub(crate) fn allows_data_collection(&self) -> bool {
@@ -160,10 +179,10 @@ index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..00000000000000000000000000000000
              .is_some_and(|a| !a.is_data_collection_disabled())
      }
 diff --git a/crates/codegen/xai-grok-shell/src/auth/model.rs b/crates/codegen/xai-grok-shell/src/auth/model.rs
-index a05c8a609a1dc549524ffb0181d14cd5266f30b4..0000000000000000000000000000000000000000 100644
+index a05c8a609a1dc549524ffb0181d14cd5266f30b4..b0de44289780c5937cc8c92941a72138178a05bd 100644
 --- a/crates/codegen/xai-grok-shell/src/auth/model.rs
 +++ b/crates/codegen/xai-grok-shell/src/auth/model.rs
-@@ -183,5 +183,8 @@
+@@ -186,6 +186,9 @@ impl GrokAuth {
      /// Product analytics (`telemetry_enabled`) and user-facing sync
      /// features should use `is_zdr_team()` directly.
      pub(crate) fn is_data_collection_disabled(&self) -> bool {
@@ -172,13 +191,15 @@ index a05c8a609a1dc549524ffb0181d14cd5266f30b4..00000000000000000000000000000000
 +        }
          self.is_zdr_team() || self.coding_data_retention_opt_out
      }
+ 
 diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
-index 9161dc76ce6d63b395a12dedac080ce065fc6815..0000000000000000000000000000000000000000 100644
+index 9161dc76ce6d63b395a12dedac080ce065fc6815..526b4c6006e8a032a02158fa3f2f73aad6c013f4 100644
 --- a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 +++ b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
-@@ -27,4 +27,16 @@
+@@ -26,6 +26,18 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
+ 
      let params: Params = parse_params(args)?;
-+
+ 
 +    if xai_grok_version::coding_data_retention_locked_opt_out()
 +        && !params.coding_data_retention_opt_out
 +    {
@@ -190,17 +211,22 @@ index 9161dc76ce6d63b395a12dedac080ce065fc6815..00000000000000000000000000000000
 +    } else {
 +        params.coding_data_retention_opt_out
 +    };
- 
++
      let auth = agent.auth_manager.auth().await.map_err(|e| {
          tracing::warn!(error = %e, "privacy: auth resolution failed");
-@@ -37,5 +49,5 @@
+         acp::Error::auth_required()
+@@ -37,7 +49,7 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
      let token_header = agent.auth_manager.grok_com_config().token_header.clone();
  
      let body = serde_json::json!({
 -        "codingDataRetentionOptOut": params.coding_data_retention_opt_out,
 +        "codingDataRetentionOptOut": opt_out,
      });
-@@ -82,7 +82,7 @@
+ 
+     let provider: std::sync::Arc<dyn xai_grok_auth::AuthCredentialProvider> = std::sync::Arc::new(
+@@ -82,10 +94,10 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
+     // background GET /user enrichment that may read stale ACL state
+     // and overwrite the opt-out flag back to its previous value.
      let mut updated = auth.clone();
 -    updated.coding_data_retention_opt_out = params.coding_data_retention_opt_out;
 +    updated.coding_data_retention_opt_out = opt_out;
@@ -210,6 +236,12 @@ index 9161dc76ce6d63b395a12dedac080ce065fc6815..00000000000000000000000000000000
 -        "codingDataRetentionOptOut": params.coding_data_retention_opt_out,
 +        "codingDataRetentionOptOut": opt_out,
      }))
+ }
 
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
+

@@ -7,11 +7,14 @@ Gork-Patch-Id: openai-strict-chat-wire
 Gork-Invariant: strict-openai-chat-wire
 Gork-Risk: critical
 ---
+ crates/codegen/xai-grok-sampler/src/client.rs | 24 +++++++++++++++----
+ 1 file changed, 19 insertions(+), 5 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+index d13aaf0a8e6dc079b70786ab1a133f0fc55a34b0..1ecb56ab1dfae9c48bf32c47d70f0922dd503a5b 100644
 --- a/crates/codegen/xai-grok-sampler/src/client.rs
 +++ b/crates/codegen/xai-grok-sampler/src/client.rs
-@@ -958,7 +1092,14 @@ impl SamplingClient {
+@@ -1153,7 +1153,14 @@ impl SamplingClient {
              builder,
              sent_bearer,
          } = self.post(self.endpoint("chat/completions"));
@@ -27,7 +30,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
  
          let response = http_request.send().await.map_err(|e| {
              // Log at debug level; errors are surfaced to the caller.
-@@ -1021,10 +1162,17 @@ impl SamplingClient {
+@@ -1214,10 +1221,17 @@ impl SamplingClient {
              builder,
              sent_bearer,
          } = self.post(self.endpoint("chat/completions"));
@@ -51,5 +54,17 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
              tracing::error!("Failed to build HTTP request: {}", e);
 
 base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: 85278b92aff49dd05eddfe8f5940f6cf72f2c82e
+prerequisite-patch-id: b46eb1b08826e4374b4e19bf895544b01b5e2db8
 -- 
-2.50.1
+2.55.0
+

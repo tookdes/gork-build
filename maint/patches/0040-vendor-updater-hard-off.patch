@@ -7,11 +7,12 @@ Gork-Patch-Id: vendor-updater-hard-off
 Gork-Invariant: vendor-install-unreachable
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-update/Cargo.toml         |  8 +-
- crates/codegen/xai-grok-update/src/auto_update.rs | 138 ++++++++++++++++++++++
- 2 files changed, 145 insertions(+), 1 deletion(-)
+ crates/codegen/xai-grok-update/Cargo.toml     |   8 +-
+ .../xai-grok-update/src/auto_update.rs        | 143 ++++++++++++++++++
+ 2 files changed, 150 insertions(+), 1 deletion(-)
 
 diff --git a/crates/codegen/xai-grok-update/Cargo.toml b/crates/codegen/xai-grok-update/Cargo.toml
+index e56f0f9902daf6d13049a9e2152fc4f62aef78a8..ed0cff097d1de80456d2cf583989b5b02d23a787 100644
 --- a/crates/codegen/xai-grok-update/Cargo.toml
 +++ b/crates/codegen/xai-grok-update/Cargo.toml
 @@ -4,6 +4,12 @@ name = "xai-grok-update"
@@ -27,7 +28,7 @@ diff --git a/crates/codegen/xai-grok-update/Cargo.toml b/crates/codegen/xai-grok
  [dependencies]
  anyhow = { workspace = true }
  futures = { workspace = true }
-@@ -20,7 +26,7 @@ xai-dirs = { workspace = true }
+@@ -22,7 +28,7 @@ xai-dirs = { workspace = true }
  xai-grok-shell = { workspace = true }
  xai-grok-telemetry = { workspace = true }
  xai-grok-tools = { workspace = true }
@@ -37,9 +38,11 @@ diff --git a/crates/codegen/xai-grok-update/Cargo.toml b/crates/codegen/xai-grok
  zstd = { workspace = true }
  
 diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/xai-grok-update/src/auto_update.rs
+index 60ccb88f19003b0f083837954c38fdcfc20cb260..20b603f42a1dfc9be62588b34417e72952c6e48e 100644
 --- a/crates/codegen/xai-grok-update/src/auto_update.rs
 +++ b/crates/codegen/xai-grok-update/src/auto_update.rs
-@@ -29,5 +29,36 @@ const PROMPT_UPDATE_NOW: &str = "Update now? [Y/n/d]";
+@@ -30,6 +30,37 @@ pub enum UpdateRunMode {
+ const PROMPT_UPDATE_NOW: &str = "Update now? [Y/n/d]";
  const MSG_AUTO_UPDATE_BACKGROUND: &str = "Auto-update running in background.";
  const MSG_RUN_UPDATE_MANUAL: &str = "Run `grok update` to get the latest version.";
 +
@@ -76,7 +79,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
  /// An empty or `"stable"` channel means stable — the installers' default
  /// (`CHANNEL="${GROK_CHANNEL:-stable}"` in install.sh).
  fn is_stable_channel(channel: &str) -> bool {
-@@ -225,6 +257,18 @@ pub async fn check_update_status(update_config: &UpdateConfig) -> UpdateStatus {
+@@ -239,6 +270,18 @@ pub async fn check_update_status(update_config: &UpdateConfig) -> UpdateStatus {
      let auto_update = current_config.cli.auto_update;
      let channel = update_config.channel.clone();
  
@@ -95,7 +98,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let Some(ref inst) = installer else {
          return UpdateStatus {
              current_version,
-@@ -367,6 +411,9 @@ async fn fetch_update_plan(
+@@ -362,6 +405,9 @@ async fn fetch_update_plan(
  /// on the installer (via `installer_allows_downgrade`) so npm is never
  /// downgraded — the decision depends on the installer, never the caller.
  pub async fn auto_update_target(update_config: &UpdateConfig) -> Option<(&'static str, String)> {
@@ -105,7 +108,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let installer = get_installer().await?;
      let current = get_installed_grok_version();
      let policy = config::VersionPolicy::resolve();
-@@ -419,6 +466,12 @@ pub struct EnsureLatestOutcome {
+@@ -410,6 +456,12 @@ pub struct EnsureLatestOutcome {
  /// re-download is NOT fixed there; only the symlink layout can prove the
  /// disk is current without exec'ing the binary.
  pub async fn ensure_latest_on_disk(update_config: &UpdateConfig) -> Result<EnsureLatestOutcome> {
@@ -118,7 +121,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let mut outcome = EnsureLatestOutcome {
          installed: None,
          relaunch_needed: false,
-@@ -597,6 +650,9 @@ impl BackgroundUpdateCheck {
+@@ -598,6 +650,9 @@ impl BackgroundUpdateCheck {
  /// TUI, the leader's hourly checker) already put the target version on disk,
  /// no download is started — only the restart hint is surfaced.
  pub async fn check_update_background(update_config: &UpdateConfig) -> BackgroundUpdateCheck {
@@ -128,7 +131,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let Some(installer) = get_installer().await else {
          return BackgroundUpdateCheck::none();
      };
-@@ -687,6 +743,9 @@ pub async fn run_update_if_available(
+@@ -688,6 +743,9 @@ pub async fn run_update_if_available(
      trigger: CliUpdateTrigger,
      update_config: &UpdateConfig,
  ) -> Result<bool> {
@@ -138,7 +141,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let Some(inst) = get_installer().await else {
          // Skip update check if no known installer.
          return Ok(false);
-@@ -929,6 +988,9 @@ pub async fn run_install_script(
+@@ -930,6 +988,9 @@ pub async fn run_install_script(
      update_config: &UpdateConfig,
      trigger: CliUpdateTrigger,
  ) -> Result<()> {
@@ -148,7 +151,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      // What's on disk is being replaced, not this (possibly stale) process's
      // version; npm has no trustworthy disk version, so it falls back.
      let from_version =
-@@ -1438,6 +1500,9 @@ async fn download_cli_artifact_from_gcs(
+@@ -1438,6 +1499,9 @@ async fn download_cli_artifact_from_gcs(
  
  /// Returns the version that was actually activated.
  async fn install_internal(target: Option<&str>, update_config: &UpdateConfig) -> Result<String> {
@@ -158,7 +161,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      let bases = crate::version::cli_base_urls();
      let base_refs: Vec<&str> = bases.iter().map(String::as_str).collect();
      install_internal_from_bases(target, update_config, &base_refs).await
-@@ -2705,6 +2770,9 @@ pub async fn run_update(
+@@ -2709,6 +2773,9 @@ pub async fn run_update(
      update_config: &mut UpdateConfig,
      trigger: CliUpdateTrigger,
  ) -> Result<Option<String>> {
@@ -168,7 +171,7 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
      apply_channel_switch(channel_switch, update_config).await;
      let installer = match get_installer().await {
          Some(i) => i,
-@@ -2927,3 +2995,79 @@ async fn refresh_deployment_config() {
+@@ -2920,3 +2987,79 @@ async fn refresh_deployment_config() {
  #[cfg(test)]
  #[path = "auto_update_tests.rs"]
  mod tests;
@@ -248,5 +251,12 @@ diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/
 +    }
 +}
 +
+
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
+

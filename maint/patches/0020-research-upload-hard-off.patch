@@ -8,16 +8,16 @@ Gork-Patch-Id: research-upload-hard-off
 Gork-Invariant: research-upload-unreachable
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-shell/Cargo.toml     |  2 +-
- crates/codegen/xai-grok-shell/src/agent/config.rs       | 36 +++++++++-
- crates/codegen/xai-grok-shell/src/agent/config_tests.rs | 100 +++++++++++++++++++++++--
- 3 files changed, 132 insertions(+), 6 deletions(-)
+ crates/codegen/xai-grok-shell/Cargo.toml      |   2 +-
+ .../xai-grok-shell/src/agent/config.rs        |  31 ++++-
+ .../xai-grok-shell/src/agent/config_tests.rs  | 121 +++++++++++++++++-
+ 3 files changed, 146 insertions(+), 8 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-shell/Cargo.toml b/crates/codegen/xai-grok-shell/Cargo.toml
-index 7fc5ca47e6d86c7b0692f9370ac7f32513026af0..f581ea172989a3c0433521bb252e852d18d66623 100644
+index 03ec01db5ec2d0cd798404c8cd8a096f38f9504f..1c89d12fd70b6a13cb4dd22c24c1de4a119a9cca 100644
 --- a/crates/codegen/xai-grok-shell/Cargo.toml
 +++ b/crates/codegen/xai-grok-shell/Cargo.toml
-@@ -26,7 +26,7 @@ agent-client-protocol = { workspace = true }
+@@ -35,7 +35,7 @@ agent-client-protocol = { workspace = true }
  anyhow = { workspace = true }
  xai-grok-announcements = { workspace = true }
  xai-prompt-queue = { workspace = true }
@@ -27,9 +27,10 @@ index 7fc5ca47e6d86c7b0692f9370ac7f32513026af0..f581ea172989a3c0433521bb252e852d
  async-openai = { workspace = true }
  async-trait = { workspace = true }
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+index 137ac779dd00c32e00b18eb56ea09f46a42b80b4..2381d08656de6d32aeefb33f33a77b46c2c6eaac 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -1718,6 +1718,8 @@
+@@ -1720,6 +1720,8 @@ pub struct SessionConfig {
  #[derive(Debug, Clone, Serialize, Deserialize)]
  #[serde(default)]
  pub struct RepoChangesDedupConfig {
@@ -38,7 +39,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
      pub enabled: bool,
      /// Include inline content even when references exist.
      pub include_inline_fallback: bool,
-@@ -1736,7 +1738,8 @@
+@@ -1738,7 +1740,8 @@ impl RepoChangesDedupConfig {}
  impl Default for RepoChangesDedupConfig {
      fn default() -> Self {
          Self {
@@ -48,7 +49,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
              include_inline_fallback: false,
              max_inline_bytes: 0,
              dedup_untracked: true,
-@@ -2450,8 +2450,20 @@
+@@ -2451,8 +2454,20 @@ impl Config {
      pub fn is_trace_upload_enabled(&self) -> bool {
          self.resolve_trace_upload().value
      }
@@ -70,7 +71,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
      }
      pub(crate) fn is_session_recap_enabled(&self) -> bool {
          self.is_feature_enabled(Feature::SessionRecap)
-@@ -2465,7 +2477,11 @@
+@@ -2466,7 +2481,11 @@ impl Config {
      pub(crate) fn is_two_pass_compaction_enabled(&self) -> bool {
          self.is_feature_enabled(Feature::TwoPassCompaction)
      }
@@ -83,7 +84,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
          if let Some(mode) = self.requirements.telemetry.pinned() {
              return Resolved::new(mode, ConfigSource::Requirement);
          }
-@@ -2487,7 +2503,11 @@
+@@ -2488,7 +2507,11 @@ impl Config {
          }
          Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
      }
@@ -97,9 +98,10 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
          let ff = if mode.value.is_disabled() {
              None
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+index a921ed63f3a31fd5aa18753855067dc028af580f..b74f159ffdeab094a383d7b860bd05ed6fa55ef0 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
-@@ -4065,6 +4065,26 @@
+@@ -4076,6 +4076,26 @@ fn resolve_trace_upload_disabled_when_telemetry_off_despite_remote_flag() {
  #[test]
  #[serial]
  fn resolve_trace_upload_explicit_config_wins_over_telemetry_off() {
@@ -126,7 +128,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/co
      unsafe { std::env::remove_var("GROK_TELEMETRY_ENABLED") };
      unsafe { std::env::remove_var("GROK_TELEMETRY_TRACE_UPLOAD") };
      let mut cfg = Config::default();
-@@ -4101,13 +4121,32 @@
+@@ -4112,13 +4132,32 @@ fn trace_upload_decision_debug_reports_winning_source() {
      assert_eq!(d["has_remote_settings"], serde_json::json!(true));
      cfg.telemetry.trace_upload = Some(true);
      let d = cfg.trace_upload_decision_debug();
@@ -162,7 +164,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/co
      unsafe { std::env::remove_var("GROK_TELEMETRY_ENABLED") };
      unsafe { std::env::remove_var("GROK_TELEMETRY_TRACE_UPLOAD") };
      let mut cfg = Config::default();
-@@ -4122,6 +4161,82 @@
+@@ -4133,6 +4172,82 @@ fn resolve_trace_upload_honors_config_when_telemetry_on() {
  }
  #[test]
  #[serial]
@@ -246,6 +248,9 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/co
      unsafe { std::env::remove_var("GROK_GOAL") };
      let cfg = Config::default();
 
-base-commit: eb267feff13129e568df38fb6fdf0ceb65f735d6
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
+

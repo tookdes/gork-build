@@ -7,9 +7,9 @@ Gork-Patch-Id: product-identity
 Gork-Invariant: product-cli-gork
 Gork-Risk: medium
 ---
- crates/codegen/xai-grok-pager-bin/Cargo.toml | 4 ++--
+ crates/codegen/xai-grok-pager-bin/Cargo.toml | 6 +++---
  crates/codegen/xai-grok-pager/src/app/cli.rs | 4 ++--
- 2 files changed, 4 insertions(+), 4 deletions(-)
+ 2 files changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-grok-pager-bin/Cargo.toml
 index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539061aa1a1 100644
@@ -36,9 +36,11 @@ index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539
  
  [dependencies]
 diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
+index 919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd..fbd9b23a0c9ce5e75a1213101d92d7de32ecd4f5 100644
 --- a/crates/codegen/xai-grok-pager/src/app/cli.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
-@@ -398,7 +398,7 @@
+@@ -397,9 +397,9 @@ pub struct LeaderArgs {
+ }
  #[derive(Debug, Clone, Parser)]
  #[command(
 -    name = "grok",
@@ -48,5 +50,23 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-g
 +    about = "Gork Build TUI",
      disable_version_flag = true,
      next_display_order = None,
+     help_template = "\
+
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: 85278b92aff49dd05eddfe8f5940f6cf72f2c82e
+prerequisite-patch-id: b46eb1b08826e4374b4e19bf895544b01b5e2db8
+prerequisite-patch-id: ed9f138b27104ad53710967cf3f7c67772b11ae4
+prerequisite-patch-id: 449712f7840b4a0010f81cbb0dac019ecf7f1a49
+prerequisite-patch-id: 035c2efb34e8428af9ca1d7fb4973b5ae8003908
 -- 
-2.51.0
+2.55.0
+

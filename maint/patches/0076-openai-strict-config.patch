@@ -7,101 +7,17 @@ Gork-Patch-Id: openai-strict-config
 Gork-Invariant: strict-openai-config
 Gork-Risk: critical
 ---
-
-diff --git a/crates/codegen/xai-grok-sampler/src/config.rs b/crates/codegen/xai-grok-sampler/src/config.rs
---- a/crates/codegen/xai-grok-sampler/src/config.rs
-+++ b/crates/codegen/xai-grok-sampler/src/config.rs
-@@ -20,6 +20,24 @@ pub enum AuthScheme {
-     XApiKey,
- }
- 
-+/// Compatibility policy for OpenAI-shaped backends.
-+///
-+/// `Native` preserves Grok/xAI wire extensions. `Strict` asks the sampler to
-+/// emit only the provider-neutral OpenAI request shape for Chat Completions or
-+/// Responses endpoints.
-+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-+#[serde(rename_all = "snake_case")]
-+pub enum OpenAiCompat {
-+    #[default]
-+    Native,
-+    Strict,
-+}
-+
-+/// Reserved model-catalog metadata used to carry `openai_compat` through the
-+/// existing model-resolution pipeline. It is deliberately not a valid HTTP
-+/// header name and is consumed by `SamplingClient::new` before header parsing.
-+pub const OPENAI_COMPAT_MARKER: &str = "@grok/openai-compat";
-+
- /// All knobs that control a single sampling request.
- ///
- /// The session typically owns one `SamplerConfig` per active model
-
-diff --git a/crates/codegen/xai-grok-sampler/src/lib.rs b/crates/codegen/xai-grok-sampler/src/lib.rs
---- a/crates/codegen/xai-grok-sampler/src/lib.rs
-+++ b/crates/codegen/xai-grok-sampler/src/lib.rs
-@@ -37,8 +37,8 @@ pub use attribution::{
- };
- pub use client::{ApiBackend, SamplingClient, user_agent_string_for};
- pub use config::{
--    AuthScheme, BearerResolver, HeaderInjector, OriginClientInfo, RetryPolicy, SamplerConfig,
--    SharedBearerResolver, SharedHeaderInjector,
-+    AuthScheme, BearerResolver, HeaderInjector, OPENAI_COMPAT_MARKER, OpenAiCompat,
-+    OriginClientInfo, RetryPolicy, SamplerConfig, SharedBearerResolver, SharedHeaderInjector,
- };
- pub use doom_loop::DoomLoopSignalCollector;
- pub use events::{
-
-diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
---- a/crates/codegen/xai-grok-shell/src/agent/config.rs
-+++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -27,7 +27,9 @@ use std::num::NonZeroU64;
- use std::path::PathBuf;
- use std::sync::Arc;
- use xai_grok_agent::prompt::skills::SkillsConfig;
--use xai_grok_sampler::{AuthScheme, SamplerConfig};
-+use xai_grok_sampler::{
-+    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
-+};
- use xai_grok_sampling_types::{
-     CompactionAtTokens, CompactionsRemaining, REASONING_EFFORT_META_KEY,
-     REASONING_EFFORTS_META_KEY, ReasoningEffort, ReasoningEffortOption,
-@@ -1112,6 +1114,7 @@ pub struct ConfigModelOverride {
-     pub temperature: Option<f32>,
-     pub top_p: Option<f32>,
-     pub api_backend: Option<ApiBackend>,
-+    pub openai_compat: Option<OpenAiCompat>,
-     #[serde(default)]
-     pub extra_headers: IndexMap<String, String>,
-     #[serde(default)]
-@@ -1177,6 +1180,22 @@ impl ConfigModelOverride {
-         if !self.extra_headers.is_empty() {
-             entry.info.extra_headers = self.extra_headers.clone();
-         }
-+        // Carry the model-level compatibility policy through the existing
-+        // catalog -> ModelInfo -> SamplerConfig pipeline without widening all
-+        // of those public structs. SamplingClient consumes this reserved key
-+        // before HTTP header validation, so it can never reach the wire.
-+        if let Some(mode) = self.openai_compat {
-+            entry
-+                .info
-+                .extra_headers
-+                .shift_remove(OPENAI_COMPAT_MARKER);
-+            if mode == OpenAiCompat::Strict {
-+                entry.info.extra_headers.insert(
-+                    OPENAI_COMPAT_MARKER.to_owned(),
-+                    "strict".to_owned(),
-+                );
-+            }
-+        }
-         if !self.query_params.is_empty() {
-             entry.info.query_params = self.query_params.clone();
-         }
+ .../docs/user-guide/11-custom-models.md       | 28 +++++++++++++++++++
+ crates/codegen/xai-grok-sampler/src/config.rs | 18 ++++++++++++
+ crates/codegen/xai-grok-sampler/src/lib.rs    |  4 +--
+ .../xai-grok-shell/src/agent/config.rs        | 21 +++++++++++++-
+ 4 files changed, 68 insertions(+), 3 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
+index e7c1984c558791f361435ce79dd9103da36919b8..2b873365b49b2821323fe8adea057658e89e781a 100644
 --- a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
 +++ b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
-@@ -53,6 +53,33 @@ When you omit `api_backend`, Grok uses `chat_completions`.
+@@ -67,6 +67,33 @@ When you omit `api_backend`, Grok uses `chat_completions`.
  
  To send provider-specific authentication or version headers -- for example, Anthropic's `x-api-key` -- use the `extra_headers` field described below. Grok sends those headers verbatim with every request to the endpoint.
  
@@ -135,14 +51,115 @@ diff --git a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md b
  ---
  
  ## Configuring Custom Models
-@@ -75,5 +99,6 @@ api_key = "sk-..."                        # API key for this provider (optional)
+@@ -82,6 +109,7 @@ description = "Model description"          # Optional description
+ api_key = "sk-..."                        # API key for this provider (optional)
  env_key = "XAI_API_KEY"                   # Env var holding the API key (optional; string or array)
  api_backend = "chat_completions"          # "chat_completions", "responses", or "messages"
 +openai_compat = "strict"                  # Optional: strict provider-neutral OpenAI wire shape
  temperature = 0.7                         # Sampling temperature
  top_p = 0.95                              # Nucleus sampling parameter
  max_completion_tokens = 8192              # Maximum tokens per response
+diff --git a/crates/codegen/xai-grok-sampler/src/config.rs b/crates/codegen/xai-grok-sampler/src/config.rs
+index ba18b25abf95278c71f42a3741a5a1a130a326ce..0eaf0fdd9d96ef52da7fa74c182dae95e261c669 100644
+--- a/crates/codegen/xai-grok-sampler/src/config.rs
++++ b/crates/codegen/xai-grok-sampler/src/config.rs
+@@ -23,6 +23,24 @@ pub enum AuthScheme {
+     XApiKey,
+ }
+ 
++/// Compatibility policy for OpenAI-shaped backends.
++///
++/// `Native` preserves Grok/xAI wire extensions. `Strict` asks the sampler to
++/// emit only the provider-neutral OpenAI request shape for Chat Completions or
++/// Responses endpoints.
++#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
++#[serde(rename_all = "snake_case")]
++pub enum OpenAiCompat {
++    #[default]
++    Native,
++    Strict,
++}
++
++/// Reserved model-catalog metadata used to carry `openai_compat` through the
++/// existing model-resolution pipeline. It is deliberately not a valid HTTP
++/// header name and is consumed by `SamplingClient::new` before header parsing.
++pub const OPENAI_COMPAT_MARKER: &str = "@grok/openai-compat";
++
+ /// All knobs that control a single sampling request.
+ ///
+ /// The session typically owns one `SamplerConfig` per active model
+diff --git a/crates/codegen/xai-grok-sampler/src/lib.rs b/crates/codegen/xai-grok-sampler/src/lib.rs
+index 56e0e7d2c6f526250cde9b6b1dfb8c1721467b04..a3b7bdde64e7b298605f50ff27ad7c0e50a6a3bd 100644
+--- a/crates/codegen/xai-grok-sampler/src/lib.rs
++++ b/crates/codegen/xai-grok-sampler/src/lib.rs
+@@ -40,8 +40,8 @@ pub use attribution::{
+ };
+ pub use client::{ApiBackend, SamplingClient, user_agent_string_for};
+ pub use config::{
+-    AuthScheme, BearerResolver, HeaderInjector, OriginClientInfo, RetryPolicy, SamplerConfig,
+-    SharedBearerResolver, SharedHeaderInjector,
++    AuthScheme, BearerResolver, HeaderInjector, OPENAI_COMPAT_MARKER, OpenAiCompat,
++    OriginClientInfo, RetryPolicy, SamplerConfig, SharedBearerResolver, SharedHeaderInjector,
+ };
+ pub use doom_loop::DoomLoopSignalCollector;
+ pub use events::{
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+index 2381d08656de6d32aeefb33f33a77b46c2c6eaac..21e321b0e9a7746708ea8019c242ba0558feaa08 100644
+--- a/crates/codegen/xai-grok-shell/src/agent/config.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
+@@ -13,7 +13,9 @@ use std::num::NonZeroU64;
+ use std::path::PathBuf;
+ use std::sync::Arc;
+ use xai_grok_agent::prompt::skills::SkillsConfig;
+-use xai_grok_sampler::{AuthScheme, SamplerConfig};
++use xai_grok_sampler::{
++    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
++};
+ use xai_grok_sampling_types::{
+     CompactionAtTokens, CompactionsRemaining, REASONING_EFFORT_META_KEY,
+     REASONING_EFFORTS_META_KEY, ReasoningEffort, ReasoningEffortOption,
+@@ -4077,6 +4079,7 @@ pub struct ConfigModelOverride {
+     pub temperature: Option<f32>,
+     pub top_p: Option<f32>,
+     pub api_backend: Option<ApiBackend>,
++    pub openai_compat: Option<OpenAiCompat>,
+     #[serde(default)]
+     pub extra_headers: IndexMap<String, String>,
+     #[serde(default)]
+@@ -4151,6 +4154,22 @@ impl ConfigModelOverride {
+         if !self.extra_headers.is_empty() {
+             entry.info.extra_headers = self.extra_headers.clone();
+         }
++        // Carry the model-level compatibility policy through the existing
++        // catalog -> ModelInfo -> SamplerConfig pipeline without widening all
++        // of those public structs. SamplingClient consumes this reserved key
++        // before HTTP header validation, so it can never reach the wire.
++        if let Some(mode) = self.openai_compat {
++            entry
++                .info
++                .extra_headers
++                .shift_remove(OPENAI_COMPAT_MARKER);
++            if mode == OpenAiCompat::Strict {
++                entry.info.extra_headers.insert(
++                    OPENAI_COMPAT_MARKER.to_owned(),
++                    "strict".to_owned(),
++                );
++            }
++        }
+         if !self.query_params.is_empty() {
+             entry.info.query_params = self.query_params.clone();
+         }
 
 base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
 -- 
-2.50.1
+2.55.0
+

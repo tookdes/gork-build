@@ -7,11 +7,14 @@ Gork-Patch-Id: openai-strict-client-core
 Gork-Invariant: strict-openai-header-gate
 Gork-Risk: critical
 ---
+ crates/codegen/xai-grok-sampler/src/client.rs | 205 ++++++++++++++++--
+ 1 file changed, 181 insertions(+), 24 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+index 94d94c42dc800593d074f5d039b3296f7c1d80d5..d13aaf0a8e6dc079b70786ab1a133f0fc55a34b0 100644
 --- a/crates/codegen/xai-grok-sampler/src/client.rs
 +++ b/crates/codegen/xai-grok-sampler/src/client.rs
-@@ -28,7 +28,7 @@ use xai_grok_sampling_types::{
+@@ -32,7 +32,7 @@ use xai_grok_sampling_types::{
      is_check_event, messages, rs,
  };
  
@@ -20,7 +23,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
  use crate::events::SamplingErrorInfo;
  use xai_grok_auth::bearer_suffix;
  
-@@ -229,6 +229,124 @@ fn append_response_includes(body: &mut serde_json::Value, extra_includes: &[String]) {
+@@ -327,6 +327,124 @@ fn append_response_includes(body: &mut serde_json::Value, extra_includes: &[Stri
      }
  }
  
@@ -145,7 +148,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
  /// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
  fn apply_env_http_headers(
      env_http_headers: &IndexMap<String, String>,
-@@ -374,6 +465,7 @@ struct ClientDefaults {
+@@ -402,6 +520,7 @@ struct ClientDefaults {
      auth_scheme: AuthScheme,
      stream_tool_calls: bool,
      extra_response_includes: Vec<String>,
@@ -153,7 +156,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
      doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
  }
  
-@@ -575,6 +667,16 @@ impl SamplingClient {
+@@ -577,6 +696,16 @@ impl SamplingClient {
      /// any network I/O.
      pub fn new(config: SamplerConfig) -> Result<Self> {
          let mut headers = HeaderMap::new();
@@ -170,7 +173,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
          headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
          if let Some(ref api_key) = config.api_key {
              match config.auth_scheme {
-@@ -610,6 +714,11 @@ impl SamplingClient {
+@@ -612,6 +741,11 @@ impl SamplingClient {
          // injection point for proxy-auth headers and any other URL- or
          // environment-specific headers the session decides to set.
          for (key, value) in &config.extra_headers {
@@ -182,7 +185,7 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
              let header_name = HeaderName::try_from(key.as_str())
                  .map_err(|_| SamplingError::InvalidConfiguration("Invalid extra header name"))?;
              let header_value = HeaderValue::from_str(value)
-@@ -626,32 +736,41 @@ impl SamplingClient {
+@@ -627,32 +761,41 @@ impl SamplingClient {
              &mut headers,
          );
  
@@ -195,23 +198,6 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
 -                header_value,
 -            );
 -        }
--
--        if let Some(deployment_id) = config.deployment_id.as_ref()
--            && let Ok(header_value) = HeaderValue::from_str(deployment_id)
--        {
--            headers.insert(
--                HeaderName::from_static("x-grok-deployment-id"),
--                header_value,
--            );
--        }
--
--        if let Some(user_id) = config.user_id.as_ref()
--            && let Ok(header_value) = HeaderValue::from_str(user_id)
--        {
--            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
--        }
--
--        {
 +        if strict_openai {
 +            let grok_headers: Vec<_> = headers
 +                .keys()
@@ -231,7 +217,15 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
 +                    header_value,
 +                );
 +            }
-+
+ 
+-        if let Some(deployment_id) = config.deployment_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(deployment_id)
+-        {
+-            headers.insert(
+-                HeaderName::from_static("x-grok-deployment-id"),
+-                header_value,
+-            );
+-        }
 +            if let Some(deployment_id) = config.deployment_id.as_ref()
 +                && let Ok(header_value) = HeaderValue::from_str(deployment_id)
 +            {
@@ -240,17 +234,23 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
 +                    header_value,
 +                );
 +            }
-+
+ 
+-        if let Some(user_id) = config.user_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(user_id)
+-        {
+-            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
+-        }
 +            if let Some(user_id) = config.user_id.as_ref()
 +                && let Ok(header_value) = HeaderValue::from_str(user_id)
 +            {
 +                headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
 +            }
-+
+ 
+-        {
              let client_id = config
                  .client_identifier
                  .clone()
-@@ -695,6 +816,7 @@ impl SamplingClient {
+@@ -700,6 +843,7 @@ impl SamplingClient {
              has_bearer_resolver = config.bearer_resolver.is_some(),
              has_authorization_header = headers.get(AUTHORIZATION).is_some(),
              has_x_api_key_header = headers.get(HeaderName::from_static("x-api-key")).is_some(),
@@ -258,14 +258,15 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
          );
  
          let defaults = ClientDefaults {
-@@ -706,5 +828,6 @@ impl SamplingClient {
+@@ -711,6 +855,7 @@ impl SamplingClient {
              auth_scheme: config.auth_scheme,
              stream_tool_calls: config.stream_tool_calls,
              extra_response_includes: config.extra_response_includes,
 +            strict_openai,
              doom_loop_recovery: config.doom_loop_recovery,
          };
-@@ -870,6 +993,18 @@ impl SamplingClient {
+ 
+@@ -914,6 +1059,18 @@ impl SamplingClient {
          Ok(request)
      }
  
@@ -286,5 +287,16 @@ diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-
      async fn handle_response(
 
 base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: 85278b92aff49dd05eddfe8f5940f6cf72f2c82e
 -- 
-2.50.1
+2.55.0
+
