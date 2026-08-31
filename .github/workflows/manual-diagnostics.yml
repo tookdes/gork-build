@@ -16,13 +16,12 @@ env:
   SOURCE_REV: d5a0335a47221e8c9519936cb693e9b6450227ec
   RUST_TOOLCHAIN: "1.94.0"
   CARGO_TERM_COLOR: never
-  CARGO_INCREMENTAL: "0"
 
 jobs:
   diagnose:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -43,68 +42,36 @@ jobs:
             --expect-version "$UPSTREAM_VERSION" \
             --expect-source-rev "$SOURCE_REV"
 
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            protobuf-compiler pkg-config libssl-dev cmake libclang-dev build-essential
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          components: clippy
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Capture Clippy and audit diagnostics
+      - name: Capture cargo-audit diagnostics
         run: |
           set -euo pipefail
           mkdir -p maint/diagnostics
-          CLIPPY_LOG=$(mktemp)
           AUDIT_LOG=$(mktemp)
-          CLIPPY_RC=$(mktemp)
-          AUDIT_RC=$(mktemp)
-          (
-            set +e
-            cd .work/src
-            cargo clippy --no-deps \
-              -p xai-grok-version \
-              -p xai-mixpanel \
-              -p xai-grok-telemetry \
-              -p xai-grok-update \
-              --lib \
-              -- -D warnings >"$CLIPPY_LOG" 2>&1
-            echo "$?" >"$CLIPPY_RC"
-          ) &
-          CLIPPY_PID=$!
-          (
-            set +e
-            cd .work/src
-            cargo audit --locked >"$AUDIT_LOG" 2>&1
-            echo "$?" >"$AUDIT_RC"
-          ) &
-          AUDIT_PID=$!
-          wait "$CLIPPY_PID"
-          wait "$AUDIT_PID"
+          set +e
+          (cd .work/src && cargo audit >"$AUDIT_LOG" 2>&1)
+          AUDIT_RC=$?
+          set -e
           OUT=maint/diagnostics/latest-ci.txt
           {
-            echo "===== CLIPPY_PRIVACY ====="
-            echo "exit=$(cat "$CLIPPY_RC")"
-            tail -n 240 "$CLIPPY_LOG"
-            echo
-            echo "===== CARGO_AUDIT ====="
-            echo "exit=$(cat "$AUDIT_RC")"
-            tail -n 240 "$AUDIT_LOG"
+            echo "===== CARGO_AUDIT_REAL ====="
+            echo "exit=$AUDIT_RC"
+            tail -n 300 "$AUDIT_LOG"
             echo
             echo "diagnostic upstream=$UPSTREAM_SHA"
           } > "$OUT"
-          rm -f "$CLIPPY_LOG" "$AUDIT_LOG" "$CLIPPY_RC" "$AUDIT_RC"
+          rm -f "$AUDIT_LOG"
 
       - name: Commit diagnostics only
         run: |
           set -euo pipefail
           git add -f maint/diagnostics/latest-ci.txt
-          git commit -m "ci: capture latest upstream diagnostics" -- maint/diagnostics/latest-ci.txt
+          git commit -m "ci: capture real cargo-audit diagnostics" -- maint/diagnostics/latest-ci.txt
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
