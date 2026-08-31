@@ -14,6 +14,14 @@ file = "0010-telemetry-hard-off.patch"
 critical = true
 contracts = ["mixpanel-lib", "telemetry-lib", "telemetry-chokepoints", "telemetry-resolvers"]
 
+# Temporary 1.0.12 replay fix; squash back into telemetry-hard-off after the
+# full compiler/test matrix is green.
+[[patch]]
+id = "telemetry-manifest-fix"
+file = "0011-telemetry-manifest-fix.patch"
+critical = true
+contracts = ["telemetry-lib"]
+
 [[patch]]
 id = "research-upload-hard-off"
 file = "0020-research-upload-hard-off.patch"
@@ -102,4 +110,3 @@ id = "package-publishing"
 file = "0081-package-publishing.patch"
 critical = false
 contracts = []
-
