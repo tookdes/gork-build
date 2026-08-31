@@ -1,5 +1,6 @@
 e962a2650500c7ebbe13c73b64550da50431d2c596f4eb8cce7cb3c4aa744a00  0001-privacy-core.patch
 e9f93a7f43ae2bbfffc685b99b85a52650478600afe35204e8cd58788e16f633  0010-telemetry-hard-off.patch
+42c97a3bf823ffac7e29bd9fbc9ee6ba0f058c06b9ab94decf49fbc9cd0bc50f  0011-telemetry-manifest-fix.patch
 063c6d8f817dd60949443c7f7b9cb9700ac983f1a45cab123dfe8988f5002a94  0020-research-upload-hard-off.patch
 3d05e1c74a9f82f3fd7880fe6044cf619eb380ded6ac1d4cd6a980b93255f746  0030-retention-opt-out.patch
 8a10642898087b7fde32d9eb4986dfe1018873979e225e88a7097750b361df79  0040-vendor-updater-hard-off.patch
