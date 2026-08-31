@@ -139,9 +139,12 @@ jobs:
               raise SystemExit(f'expected one stale gork Usage assertion, found {text.count(old)}')
           wf.write_text(text.replace(old, new, 1))
 
-          diag = Path('maint/diagnostics/latest-ci.txt')
-          if diag.exists():
-              diag.unlink()
+          for path in (
+              Path('maint/diagnostics/latest-ci.txt'),
+              Path('maint/diagnostics/final-validation.txt'),
+          ):
+              if path.exists():
+                  path.unlink()
           PY
 
       - name: Install validation dependencies
@@ -159,30 +162,73 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Validate final stack
+      - name: Capture final validation
+        id: validate
         run: |
           set -euo pipefail
-          python3 maint/scripts/patchctl.py checkout
-          python3 maint/scripts/patchctl.py lint
-          python3 maint/scripts/patchctl.py roundtrip
-          python3 maint/scripts/patchctl.py verify --only cargo-audit
-          cd .work/src
-          cargo clippy --no-deps \
-            -p xai-grok-version \
-            -p xai-mixpanel \
-            -p xai-grok-telemetry \
-            -p xai-grok-update \
-            --lib \
-            -- -D warnings
-          cargo clippy --no-deps \
-            -p xai-grok-pager-bin \
-            --bins \
-            -- -D warnings
-          cargo fmt --all -- --check
+          mkdir -p maint/diagnostics
+          OUT=maint/diagnostics/final-validation.txt
+          : > "$OUT"
+          FAIL=0
+          CHECKOUT_RC=0
+
+          run_check() {
+            local label="$1"
+            shift
+            local log
+            local rc
+            log=$(mktemp)
+            set +e
+            "$@" >"$log" 2>&1
+            rc=$?
+            set -e
+            {
+              echo "===== $label ====="
+              echo "exit=$rc"
+              tail -n 240 "$log"
+              echo
+            } >> "$OUT"
+            rm -f "$log"
+            if [ "$rc" -ne 0 ]; then
+              FAIL=1
+            fi
+            LAST_RC="$rc"
+          }
+
+          run_check PATCHCTL_CHECKOUT python3 maint/scripts/patchctl.py checkout
+          CHECKOUT_RC="$LAST_RC"
+          run_check PATCHCTL_LINT python3 maint/scripts/patchctl.py lint
+          run_check PATCHCTL_ROUNDTRIP python3 maint/scripts/patchctl.py roundtrip
+
+          if [ "$CHECKOUT_RC" -eq 0 ]; then
+            run_check CARGO_AUDIT python3 maint/scripts/patchctl.py verify --only cargo-audit
+            run_check CLIPPY_PRIVACY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-version -p xai-mixpanel -p xai-grok-telemetry -p xai-grok-update --lib -- -D warnings'
+            run_check CLIPPY_BINARY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-pager-bin --bins -- -D warnings'
+            run_check RUSTFMT bash -lc 'cd .work/src && cargo fmt --all -- --check'
+          else
+            {
+              echo '===== CARGO_VALIDATION ====='
+              echo 'skipped because PATCHCTL_CHECKOUT failed'
+              echo
+            } >> "$OUT"
+          fi
+
+          echo "failed=$FAIL" >> "$GITHUB_OUTPUT"
+          echo "validation_failed=$FAIL" >> "$OUT"
+
+      - name: Commit diagnostics on validation failure
+        if: steps.validate.outputs.failed == '1'
+        run: |
+          set -euo pipefail
+          git add -f maint/diagnostics/final-validation.txt
+          git commit --only -m "ci: capture final maintenance validation" -- maint/diagnostics/final-validation.txt
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
 
       - name: Commit maintained patch stack
+        if: steps.validate.outputs.failed == '0'
         run: |
           set -euo pipefail
+          rm -f maint/diagnostics/latest-ci.txt maint/diagnostics/final-validation.txt
           git add maint/patchset.toml maint/upstream.lock.toml maint/security-floors.toml \
             .github/workflows/gork-privacy.yml maint/last-apply-status.json
           git add -A maint/patches maint/diagnostics
