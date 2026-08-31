@@ -22,7 +22,7 @@ jobs:
   diagnose:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -58,39 +58,49 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Capture failing diagnostics
-        env:
-          GORK_WORK_SRC: ${{ github.workspace }}/.work/src
+      - name: Capture Clippy and audit diagnostics
         run: |
-          set -uo pipefail
+          set -euo pipefail
           mkdir -p maint/diagnostics
-          OUT=maint/diagnostics/latest-ci.txt
-          : > "$OUT"
-          capture() {
-            local label="$1"
-            shift
-            local log
-            log=$(mktemp)
-            echo "===== ${label} =====" >> "$OUT"
+          CLIPPY_LOG=$(mktemp)
+          AUDIT_LOG=$(mktemp)
+          CLIPPY_RC=$(mktemp)
+          AUDIT_RC=$(mktemp)
+          (
             set +e
-            "$@" >"$log" 2>&1
-            local rc=$?
-            set -e
-            echo "exit=${rc}" >> "$OUT"
-            tail -n 240 "$log" >> "$OUT"
-            echo >> "$OUT"
-            rm -f "$log"
-          }
-          set -e
-          capture CLIPPY_PRIVACY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-version -p xai-mixpanel -p xai-grok-telemetry -p xai-grok-update --lib -- -D warnings'
-          capture CLIPPY_BINARY bash -lc 'cd .work/src && cargo clippy --no-deps -p xai-grok-pager-bin --bins -- -D warnings'
-          capture CARGO_AUDIT bash -lc 'cd .work/src && cargo audit --locked'
-          capture BUILD_GORK bash -lc 'cd .work/src && cargo build -p xai-grok-pager-bin --release'
-          if [ -x .work/src/target/release/gork ]; then
-            capture GORK_VERSION .work/src/target/release/gork --version
-            capture GORK_HELP .work/src/target/release/gork --help
-          fi
-          printf 'diagnostic upstream=%s\n' "$UPSTREAM_SHA" >> "$OUT"
+            cd .work/src
+            cargo clippy --no-deps \
+              -p xai-grok-version \
+              -p xai-mixpanel \
+              -p xai-grok-telemetry \
+              -p xai-grok-update \
+              --lib \
+              -- -D warnings >"$CLIPPY_LOG" 2>&1
+            echo "$?" >"$CLIPPY_RC"
+          ) &
+          CLIPPY_PID=$!
+          (
+            set +e
+            cd .work/src
+            cargo audit --locked >"$AUDIT_LOG" 2>&1
+            echo "$?" >"$AUDIT_RC"
+          ) &
+          AUDIT_PID=$!
+          wait "$CLIPPY_PID"
+          wait "$AUDIT_PID"
+          OUT=maint/diagnostics/latest-ci.txt
+          {
+            echo "===== CLIPPY_PRIVACY ====="
+            echo "exit=$(cat "$CLIPPY_RC")"
+            tail -n 240 "$CLIPPY_LOG"
+            echo
+            echo "===== CARGO_AUDIT ====="
+            echo "exit=$(cat "$AUDIT_RC")"
+            tail -n 240 "$AUDIT_LOG"
+            echo
+            echo "diagnostic upstream=$UPSTREAM_SHA"
+          } > "$OUT"
+          rm -f "$CLIPPY_LOG" "$AUDIT_LOG" "$CLIPPY_RC" "$AUDIT_RC"
 
       - name: Commit diagnostics only
         run: |
