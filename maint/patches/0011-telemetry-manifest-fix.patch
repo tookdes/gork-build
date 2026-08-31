@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 10:20:00 +0800
+Subject: [PATCH] telemetry-manifest-fix: remove duplicate version dependency
+
+Gork-Patch-Id: telemetry-manifest-fix
+Gork-Invariant: telemetry-manifest-valid
+Gork-Risk: critical
+---
+ crates/codegen/xai-grok-telemetry/Cargo.toml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/crates/codegen/xai-grok-telemetry/Cargo.toml b/crates/codegen/xai-grok-telemetry/Cargo.toml
+--- a/crates/codegen/xai-grok-telemetry/Cargo.toml
++++ b/crates/codegen/xai-grok-telemetry/Cargo.toml
+@@ -58,7 +58,6 @@ xai-grok-session-events = { workspace = true }
+ # mapping lives next to the trace-upload lifecycle events it labels.
+ xai-file-utils = { path = "../xai-file-utils" }
+ xai-tty-utils = { workspace = true }
+-xai-grok-version = { workspace = true }
+ whoami = { workspace = true }
+ uuid = { workspace = true, features = ["v5", "v7"] }
+ obfstr = { workspace = true, optional = true }
+
+-- 
+2.50.1 (Apple Git-155)
