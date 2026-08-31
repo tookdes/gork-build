@@ -1,9 +1,9 @@
 name: Manual sync latest upstream
 
 on:
-  push:
+  pull_request:
     branches:
-      - sync/official-1.0.12-strict-openai
+      - main
     paths:
       - .github/workflows/manual-sync-latest.yml
 
@@ -17,11 +17,13 @@ env:
 
 jobs:
   sync:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -66,4 +68,4 @@ jobs:
             exit 0
           fi
           git commit -m "sync: official 1.0.12 latest head"
-          git push origin HEAD:sync/official-1.0.12-strict-openai
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
