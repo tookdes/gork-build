@@ -1,0 +1,69 @@
+name: Manual sync latest upstream
+
+on:
+  push:
+    branches:
+      - sync/official-1.0.12-strict-openai
+    paths:
+      - .github/workflows/manual-sync-latest.yml
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_SHA: bc7f02eddd3d84085849dc19ed216f11c23b0571
+  UPSTREAM_VERSION: 1.0.12
+  SOURCE_REV: d5a0335a47221e8c9519936cb693e9b6450227ec
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Configure git identity
+        run: |
+          git config user.name gork-ci
+          git config user.email gork-ci@users.noreply.github.com
+
+      - name: Replay patch queue on latest official head
+        run: |
+          set -euo pipefail
+          python3 maint/scripts/patchctl.py apply \
+            --upstream "$UPSTREAM_SHA" \
+            --expect-version "$UPSTREAM_VERSION" \
+            --expect-source-rev "$SOURCE_REV"
+
+      - name: Verify privacy contracts before finalizing
+        env:
+          GORK_WORK_SRC: ${{ github.workspace }}/.work/src
+        run: |
+          set -euo pipefail
+          python3 maint/scripts/patchctl.py verify \
+            --skip-expensive \
+            --exclude-group supply-chain \
+            --exclude-group egress
+
+      - name: Finalize lock and re-export patches
+        run: |
+          set -euo pipefail
+          python3 maint/scripts/patchctl.py finalize-sync \
+            --upstream "$UPSTREAM_SHA" \
+            --version "$UPSTREAM_VERSION" \
+            --source-rev "$SOURCE_REV"
+          python3 maint/scripts/patchctl.py lint
+
+      - name: Commit synchronized control plane
+        run: |
+          set -euo pipefail
+          git add maint/upstream.lock.toml maint/last-apply-status.json maint/patches
+          if git diff --cached --quiet; then
+            echo "No sync changes"
+            exit 0
+          fi
+          git commit -m "sync: official 1.0.12 latest head"
+          git push origin HEAD:sync/official-1.0.12-strict-openai
