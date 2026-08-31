@@ -54,9 +54,9 @@ jobs:
           from pathlib import Path
           p = Path('crates/codegen/xai-mixpanel/src/lib.rs')
           text = p.read_text()
-          needle = 'const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);\n'
+          needle = 'const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);\n\n'
           if text.count(needle) != 1:
-              raise SystemExit(f'expected exactly one REQUEST_TIMEOUT constant, found {text.count(needle)}')
+              raise SystemExit(f'expected exactly one REQUEST_TIMEOUT block, found {text.count(needle)}')
           p.write_text(text.replace(needle, '', 1))
           PY
           git add crates/codegen/xai-mixpanel/src/lib.rs
