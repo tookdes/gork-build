@@ -1,0 +1,254 @@
+===== CLIPPY_PRIVACY =====
+exit=101
+    Checking p384 v0.13.1
+    Checking p256 v0.13.2
+    Checking simple_asn1 v0.6.3
+   Compiling nix v0.31.3
+    Checking half v2.7.1
+   Compiling serde_repr v0.1.20
+    Checking pxfm v0.1.25
+    Checking core_maths v0.1.1
+    Checking nom v8.0.0
+    Checking env_home v0.1.0
+    Checking color_quant v1.1.0
+    Checking bitflags v1.3.2
+    Checking minimal-lexical v0.2.1
+    Checking rustc-hash v2.1.1
+    Checking ryu-js v1.0.2
+    Checking byteorder-lite v0.1.0
+    Checking constant_time_eq v0.3.1
+    Checking parking v2.2.1
+    Checking dtoa v1.0.10
+    Checking dtoa-short v0.3.5
+    Checking image-webp v0.2.4
+    Checking serde_json_canonicalizer v0.3.2
+    Checking nom v7.1.3
+    Checking moxcms v0.8.1
+    Checking gif v0.14.1
+    Checking which v8.0.0
+    Checking ttf-parser v0.25.1
+    Checking tiff v0.11.3
+    Checking jsonwebtoken v10.3.0
+    Checking xai-computer-hub-sdk v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/common/xai-computer-hub-sdk)
+   Compiling nono v0.53.0
+    Checking derive_more v2.1.1
+    Checking sigstore-bundle v0.6.6
+    Checking cipher v0.5.1
+    Checking tendril v0.4.3
+    Checking crc-fast v1.9.0
+    Checking gcloud-metadata v1.0.2
+    Checking shellexpand v3.1.2
+    Checking sigstore-trust-root v0.6.3
+    Checking sha2 v0.11.0
+    Checking string_cache v0.8.9
+   Compiling derive_builder_core v0.20.2
+   Compiling selectors v0.26.0
+    Checking aws-smithy-query v0.60.8
+    Checking kurbo v0.12.0
+    Checking token-source v1.0.0
+    Checking concurrent-queue v2.5.0
+    Checking fxhash v0.2.1
+    Checking md-5 v0.10.6
+   Compiling cssparser-macros v0.6.1
+    Checking path-clean v1.0.1
+    Checking strict-num v0.1.1
+    Checking home v0.5.12
+    Checking unicode-properties v0.1.4
+   Compiling litrs v1.0.0
+    Checking roxmltree v0.20.0
+    Checking cssparser v0.34.0
+    Checking fontconfig-parser v0.5.8
+   Compiling document-features v0.2.12
+    Checking tiny-skia-path v0.12.0
+    Checking gcloud-auth v1.3.0
+    Checking aws-smithy-checksums v0.63.13
+    Checking write-fonts v0.43.0
+   Compiling derive_builder_macro v0.20.2
+    Checking aws-sdk-sts v1.88.0
+    Checking sigstore-verify v0.6.3
+    Checking image v0.25.10
+    Checking xai-grok-config v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-config)
+    Checking eventsource-stream v0.2.3
+    Checking skrifa v0.37.0
+    Checking xml5ever v0.38.0
+    Checking html5ever v0.38.0
+    Checking getopts v0.2.24
+    Checking reqwest-middleware v0.5.1
+    Checking aws-sdk-ssooidc v1.89.0
+    Checking aws-sdk-sso v1.86.0
+    Checking landlock v0.4.4
+    Checking dirs-sys v0.4.1
+    Checking lru v0.12.5
+    Checking gix-fs v0.21.2
+    Checking env_filter v0.1.4
+    Checking brotli-decompressor v5.0.0
+    Checking debugid v0.8.0
+    Checking cfb v0.7.3
+    Checking reflink-copy v0.1.28
+   Compiling derive_more v0.99.20
+   Compiling enum-ordinalize-derive v4.3.1
+   Compiling match_token v0.1.0
+    Checking servo_arc v0.4.3
+    Checking instant v0.1.12
+    Checking unicode-ccc v0.4.0
+    Checking futures-timer v3.0.3
+    Checking unicode-bidi-mirroring v0.4.0
+    Checking unicode-script v0.5.8
+    Checking hayro-ccitt v0.3.0
+    Checking unicode-bidi v0.3.18
+    Checking grid v1.0.1
+    Checking cpubits v0.1.1
+    Checking aes v0.9.0
+    Checking taffy v0.10.1
+    Checking rustybuzz v0.20.1
+    Checking stringprep v0.1.5
+    Checking hayro-jbig2 v0.3.0
+    Checking reqwest-eventsource v0.6.0
+    Checking html5ever v0.29.1
+   Compiling enum-ordinalize v4.3.0
+    Checking backoff v0.4.0
+    Checking brotli v8.0.2
+    Checking env_logger v0.11.8
+    Checking aws-config v1.8.8
+    Checking aws-sdk-s3 v1.109.0
+    Checking subsetter v0.2.3
+    Checking dirs v5.0.1
+    Checking markup5ever_rcdom v0.38.0+unofficial
+    Checking gcloud-storage v1.3.0
+    Checking derive_builder v0.20.2
+   Compiling xai-grok-tools v0.1.220-alpha.4 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-tools)
+    Checking tiny-skia v0.12.0
+    Checking fast_image_resize v6.1.0
+    Checking fontdb v0.23.0
+    Checking cbc v0.2.0
+    Checking lsp-types v0.95.1
+    Checking xai-grok-auth v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-auth)
+    Checking xai-grok-extra-ca v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-extra-ca)
+    Checking jpeg-decoder v0.3.2
+    Checking aws-smithy-http-client v1.1.9
+    Checking md-5 v0.11.0
+   Compiling libz-sys v1.1.22
+    Checking gix-chunk v0.7.2
+   Compiling strum_macros v0.26.4
+    Checking xai-grok-workspace-types v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-workspace-types)
+    Checking waitpid-any v0.3.0
+    Checking secrecy v0.10.3
+   Compiling async-stream-impl v0.3.6
+   Compiling async-openai-macros v0.1.1 (https://github.com/our-forks/async-openai.git?rev=95b52ebdedf42143083cf3d6f0e0be7c84e9c808#95b52ebd)
+    Checking xai-circuit-breaker v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/common/xai-circuit-breaker)
+    Checking fs2 v0.4.3
+    Checking quick-xml v0.39.4
+    Checking vte v0.14.1
+    Checking ego-tree v0.10.0
+    Checking nonempty v0.12.0
+    Checking qcms v0.3.0
+    Checking unicode-linebreak v0.1.5
+    Checking unsafe-libyaml v0.2.11
+    Checking memo-map v0.3.3
+    Checking pulldown-cmark-escape v0.11.0
+    Checking similar v2.7.0
+    Checking async-lsp v0.2.3
+    Checking minijinja v2.18.0
+    Checking serde_yaml v0.9.34+deprecated
+    Checking pdf_oxide v0.3.46
+    Checking scraper v0.23.1
+    Checking strip-ansi-escapes v0.2.1
+    Checking async-openai v0.33.1 (https://github.com/our-forks/async-openai.git?rev=95b52ebdedf42143083cf3d6f0e0be7c84e9c808#95b52ebd)
+    Checking async-stream v0.3.6
+    Checking strum v0.26.3
+    Checking htmd v0.5.4
+    Checking xai-grok-sandbox v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-sandbox)
+   Compiling educe v0.6.0
+    Checking xai-file-utils v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-file-utils)
+    Checking infer v0.19.0
+    Checking gix-tempfile v23.0.1
+    Checking command-fds v0.3.2
+    Checking gix-quote v0.7.2
+    Checking zip v3.0.0
+    Checking xai-grok-env v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-env)
+    Checking xai-interjection-core v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/common/xai-interjection-core)
+    Checking quick-xml v0.38.3
+    Checking wildmatch v2.6.0
+    Checking static_assertions v1.1.0
+    Checking xai-token-estimation v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-token-estimation)
+    Checking gix-lock v23.0.1
+    Checking event-listener v5.4.1
+    Checking gix-glob v0.26.1
+   Compiling strum_macros v0.27.2
+   Compiling libgit2-sys v0.18.2+1.9.1
+   Compiling object v0.37.3
+    Checking event-listener-strategy v0.5.4
+    Checking gix-commitgraph v0.37.1
+    Checking sentry-types v0.42.0
+    Checking strum v0.27.2
+    Checking unicode-bom v2.0.3
+    Checking rustc-demangle v0.1.26
+    Checking gimli v0.32.3
+    Checking sentry-core v0.42.0
+    Checking gix-revwalk v0.31.0
+    Checking addr2line v0.25.1
+    Checking xai-grok-compaction v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/common/xai-grok-compaction)
+   Compiling crunchy v0.2.4
+    Checking kstring v2.0.2
+   Compiling tiny-keccak v2.0.2
+    Checking gix-attributes v0.33.2
+   Compiling findshlibs v0.10.2
+    Checking gix-sec v0.14.1
+    Checking backtrace v0.3.76
+    Checking shell-words v1.1.0
+    Checking sentry-backtrace v0.42.0
+    Checking gix-ref v0.63.0
+    Checking gix-config-value v0.18.1
+   Compiling const-random-macro v0.1.16
+    Checking gix-command v0.9.1
+    Checking gix-traverse v0.57.0
+    Checking gix-packetline v0.21.5
+    Checking gix-bitmap v0.3.2
+   Compiling sentry-contexts v0.42.0
+   Compiling ahash v0.8.12
+    Checking gix-index v0.51.0
+    Checking const-random v0.1.18
+    Checking gix-pathspec v0.18.1
+    Checking gix-ignore v0.21.1
+    Checking async-broadcast v0.7.2
+   Compiling darling_core v0.23.0
+   Compiling strum_macros v0.28.0
+    Checking hostname v0.4.1
+    Checking uname v0.1.1
+    Checking tree-sitter-language v0.1.5
+    Checking strum v0.28.0
+    Checking gix-worktree v0.52.0
+    Checking sentry-debug-images v0.42.0
+    Checking sentry-anyhow v0.42.0
+    Checking sentry-panic v0.42.0
+    Checking sentry-tracing v0.42.0
+   Compiling darling_macro v0.23.0
+   Compiling libsqlite3-sys v0.35.0
+    Checking xai-grok-secrets v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-grok-secrets)
+    Checking gix-url v0.36.1
+    Checking hmac-sha256 v1.1.12
+    Checking mid v4.0.0
+    Checking xai-mixpanel v0.1.0 (/home/runner/work/gork-build/gork-build/.work/src/crates/codegen/xai-mixpanel)
+error: constant `REQUEST_TIMEOUT` is never used
+  --> crates/codegen/xai-mixpanel/src/lib.rs:26:7
+   |
+26 | const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+   |       ^^^^^^^^^^^^^^^
+   |
+   = note: `-D dead-code` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`
+
+error: could not compile `xai-mixpanel` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+
+===== CARGO_AUDIT =====
+exit=2
+error: unexpected argument '--locked' found
+
+  tip: a similar argument exists: '--no-yanked'
+
+Usage: cargo audit --no-yanked
+
+For more information, try '--help'.
+
+diagnostic upstream=bc7f02eddd3d84085849dc19ed216f11c23b0571
