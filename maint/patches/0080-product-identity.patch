@@ -1,17 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
 Date: Mon, 31 Aug 2026 03:30:00 +0000
-Subject: [PATCH] product-identity: CLI binary name and entry surface
+Subject: [PATCH] product-identity: ship the gork binary target
 
 Gork-Patch-Id: product-identity
 Gork-Invariant: product-cli-gork
 Gork-Risk: medium
 ---
 diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-grok-pager-bin/Cargo.toml
-index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..37234bcedee20a0eb1af1039e9b8b7a43b28e5fa 100644
+index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539061aa1a1 100644
 --- a/crates/codegen/xai-grok-pager-bin/Cargo.toml
 +++ b/crates/codegen/xai-grok-pager-bin/Cargo.toml
-@@ -1,7 +1,11 @@
+@@ -3,8 +3,8 @@ name = "xai-grok-pager-bin"
  version = "1.0.12"
  edition.workspace = true
  license = "Apache-2.0"
@@ -19,72 +19,17 @@ index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..37234bcedee20a0eb1af1039e9b8b7a4
 -default-run = "xai-grok-pager"
 +authors = ["Gork Build contributors"]
 +default-run = "gork"
-+
-+[[bin]]
-+name = "gork"
-+path = "src/main.rs"
  
  # Composition-root binary for the Grok Build TUI. The artifact is still named
-diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-grok-pager-bin/src/main.rs
-index 878e8fe1c3b2ea30adf1450727c0191f9e370c5f..878e8fe1c3b2ea30adf1450727c0191f9e370c5f 100644
---- a/crates/codegen/xai-grok-pager-bin/src/main.rs
-+++ b/crates/codegen/xai-grok-pager-bin/src/main.rs
-@@ -1,6 +1,6 @@
-     if !is_stdio && !is_leader {
-         eprintln!(
--            "Grok Build (pager) - v{}",
-+            "Gork Build (pager) - v{}",
-             xai_grok_version::display_version_with_commit(
-                 env!("VERSION_WITH_COMMIT"),
-                 xai_grok_update::channel_label(),
-@@ -1,7 +1,8 @@
- fn version_text(channel_label: &str) -> String {
-     format!(
--        "grok {}\
-+        "{} {}\
- ",
-+        xai_grok_version::PRODUCT_CLI,
-         xai_grok_version::display_version_with_commit(
-             xai_grok_version::full_version(),
-             channel_label,
-@@ -1,6 +1,6 @@
-             let mut output = Vec::new();
-             write_version(&mut output, label).unwrap();
-             let output = String::from_utf8(output).unwrap();
--            assert!(output.starts_with("grok "));
-+            assert!(output.starts_with(&format!("{} ", xai_grok_version::PRODUCT_CLI)));
-             assert!(output.contains(env!("VERSION_WITH_COMMIT")));
-             assert!(output.ends_with(expected_suffix), "{output:?}");
-diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
-index 919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd..919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd 100644
---- a/crates/codegen/xai-grok-pager/src/app/cli.rs
-+++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
-@@ -1,6 +1,6 @@
- #[derive(Debug, Clone, Parser)]
- #[command(
--    name = "grok",
-+    name = "gork",
-     version = xai_grok_version::full_version(),
--    about = "Grok Build TUI",
-+    about = "Gork Build TUI",
-     disable_version_flag = true,
-@@ -1,6 +1,8 @@
-             .and_then(|p| p.file_name())
-             .and_then(|n| n.to_str())
--            .filter(|n| *n == "grok" || *n == "agent")
--            .unwrap_or("grok")
-+            .filter(|n| {
-+                *n == xai_grok_version::PRODUCT_CLI || *n == "grok" || *n == "agent"
-+            })
-+            .unwrap_or(xai_grok_version::PRODUCT_CLI)
-             .to_owned();
-         Self::parse_from(std::iter::once(bin_name).chain(std::env::args().skip(1)))
-diff --git a/crates/codegen/xai-grok-pager/src/lib.rs b/crates/codegen/xai-grok-pager/src/lib.rs
-index b17889a8166641c8dd4dc645773076b311abf64d..b17889a8166641c8dd4dc645773076b311abf64d 100644
---- a/crates/codegen/xai-grok-pager/src/lib.rs
-+++ b/crates/codegen/xai-grok-pager/src/lib.rs
-@@ -1 +1 @@
--//! xai-grok-pager: Grok Build TUI.
-+//! xai-grok-pager: Gork Build TUI.
+ # `xai-grok-pager`. This package exists so the binary can link both the pager
+@@ -12,7 +12,7 @@ default-run = "xai-grok-pager"
+ # depends on `xai-grok-pager`, so the pager library cannot depend back on it
+ # (cargo cycle). The binary installs the minimal-mode IoC hooks at startup.
+ [[bin]]
+-name = "xai-grok-pager"
++name = "gork"
+ path = "src/main.rs"
+ 
+ [dependencies]
 -- 
 2.51.0
