@@ -1,0 +1,142 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 07:30:00 +0000
+Subject: [PATCH] rustfmt-unblock: normalize rebased privacy and strict changes
+
+Gork-Patch-Id: rustfmt-unblock
+Gork-Invariant: rustfmt-clean
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+--- a/crates/codegen/xai-grok-sampler/src/client.rs
++++ b/crates/codegen/xai-grok-sampler/src/client.rs
+@@ -357,7 +357,9 @@
+     for mut message in std::mem::take(messages) {
+         let is_tool = message.get("role").and_then(serde_json::Value::as_str) == Some("tool");
+         if !is_tool && !pending_images.is_empty() {
+-            rewritten.push(strict_tool_image_message(std::mem::take(&mut pending_images)));
++            rewritten.push(strict_tool_image_message(std::mem::take(
++                &mut pending_images,
++            )));
+         }
+ 
+         if let Some(message_object) = message.as_object_mut() {
+@@ -440,6 +442,4 @@
+ fn is_grok_only_header(name: &str) -> bool {
+     let lower = name.to_ascii_lowercase();
+-    lower.starts_with("x-grok-")
+-        || lower == "x-compactions-remaining"
+-        || lower == "x-compaction-at"
++    lower.starts_with("x-grok-") || lower == "x-compactions-remaining" || lower == "x-compaction-at"
+ }
+@@ -2449,3 +2449,7 @@
+         let messages = body["messages"].as_array().unwrap();
+-        assert!(messages.iter().all(|message| message.get("model_id").is_none()));
++        assert!(
++            messages
++                .iter()
++                .all(|message| message.get("model_id").is_none())
++        );
+         assert!(
+@@ -2476,4 +2480,7 @@
+         sanitize_strict_response_body(&mut body);
+         assert!(body.get("stream_tool_calls").is_none());
+-        assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
++        assert_eq!(
++            body["include"],
++            serde_json::json!(["reasoning.encrypted_content"])
++        );
+         assert_eq!(body["tools"].as_array().unwrap().len(), 2);
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+--- a/crates/codegen/xai-grok-shell/src/agent/config.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
+@@ -13,7 +13,5 @@
+ use std::path::PathBuf;
+ use std::sync::Arc;
+ use xai_grok_agent::prompt::skills::SkillsConfig;
+-use xai_grok_sampler::{
+-    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
+-};
++use xai_grok_sampler::{AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig};
+ use xai_grok_sampling_types::{
+@@ -4159,14 +4157,11 @@
+         // before HTTP header validation, so it can never reach the wire.
+         if let Some(mode) = self.openai_compat {
+-            entry
+-                .info
+-                .extra_headers
+-                .shift_remove(OPENAI_COMPAT_MARKER);
++            entry.info.extra_headers.shift_remove(OPENAI_COMPAT_MARKER);
+             if mode == OpenAiCompat::Strict {
+-                entry.info.extra_headers.insert(
+-                    OPENAI_COMPAT_MARKER.to_owned(),
+-                    "strict".to_owned(),
+-                );
++                entry
++                    .info
++                    .extra_headers
++                    .insert(OPENAI_COMPAT_MARKER.to_owned(), "strict".to_owned());
+             }
+         }
+         if !self.query_params.is_empty() {
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+--- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+@@ -4238,7 +4238,10 @@
+         ..Default::default()
+     });
+     let r = cfg.resolve_feedback();
+-    assert!(!r.value, "config/remote must not enable feedback in privacy builds");
++    assert!(
++        !r.value,
++        "config/remote must not enable feedback in privacy builds"
++    );
+     assert_eq!(r.source, ConfigSource::Default);
+     unsafe { std::env::set_var("GROK_FEEDBACK_ENABLED", "1") };
+     let r = cfg.resolve_feedback();
+diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/xai-grok-update/src/auto_update.rs
+--- a/crates/codegen/xai-grok-update/src/auto_update.rs
++++ b/crates/codegen/xai-grok-update/src/auto_update.rs
+@@ -3037,7 +3037,9 @@
+ 
+     #[tokio::test]
+     async fn ensure_latest_on_disk_no_install_under_privacy() {
+-        let out = ensure_latest_on_disk(&privacy_update_config()).await.unwrap();
++        let out = ensure_latest_on_disk(&privacy_update_config())
++            .await
++            .unwrap();
+         assert!(out.installed.is_none());
+         assert!(!out.relaunch_needed);
+     }
+@@ -3050,16 +3052,9 @@
+     #[tokio::test]
+     async fn explicit_run_update_refuses_under_privacy() {
+         let mut cfg = privacy_update_config();
+-        let err = run_update(
+-            false,
+-            None,
+-            None,
+-            &mut cfg,
+-            CliUpdateTrigger::UserCommand,
+-        )
+-        .await
+-        .expect_err("explicit update must be blocked before any vendor request");
++        let err = run_update(false, None, None, &mut cfg, CliUpdateTrigger::UserCommand)
++            .await
++            .expect_err("explicit update must be blocked before any vendor request");
+         assert!(format!("{err:#}").contains("never installs from vendor"));
+     }
+ }
+-
+diff --git a/crates/codegen/xai-grok-version/src/lib.rs b/crates/codegen/xai-grok-version/src/lib.rs
+--- a/crates/codegen/xai-grok-version/src/lib.rs
++++ b/crates/codegen/xai-grok-version/src/lib.rs
+@@ -39,5 +39,4 @@
+     PRIVACY_BUILD
+ }
+ 
+-
+ pub const TEST_VERSION_ENV: &str = "GROK_TEST_VERSION";
+
+-- 
+2.50.1

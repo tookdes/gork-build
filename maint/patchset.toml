@@ -98,6 +98,14 @@ file = "0079-openai-strict-responses-wire.patch"
 critical = true
 contracts = []
 
+# Temporary rustfmt consolidation for the 1.0.12 rebase. Once the full
+# compiler/test matrix is green, squash each hunk back into its owning patch.
+[[patch]]
+id = "rustfmt-unblock"
+file = "0079a-rustfmt-unblock.patch"
+critical = true
+contracts = []
+
 # Trailing non-critical: may be skipped on upstream conflict (draft PR still opens).
 [[patch]]
 id = "product-identity"
