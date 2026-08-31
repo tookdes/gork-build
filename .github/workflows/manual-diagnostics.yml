@@ -229,8 +229,11 @@ jobs:
         run: |
           set -euo pipefail
           rm -f maint/diagnostics/latest-ci.txt maint/diagnostics/final-validation.txt
-          git add maint/patchset.toml maint/upstream.lock.toml maint/security-floors.toml \
-            .github/workflows/gork-privacy.yml maint/last-apply-status.json
-          git add -A maint/patches maint/diagnostics
+          git add -A -- maint .github/workflows/gork-privacy.yml
+          git status --short
+          if git diff --cached --quiet; then
+            echo 'maintenance produced no staged changes' >&2
+            exit 1
+          fi
           git commit -m "maint: fix latest upstream CI and fold telemetry patch"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
