@@ -1,6 +1,7 @@
 # Gork privacy patch series (apply order)
 0001-privacy-core.patch
 0010-telemetry-hard-off.patch
+0011-telemetry-manifest-fix.patch
 0020-research-upload-hard-off.patch
 0030-retention-opt-out.patch
 0040-vendor-updater-hard-off.patch
