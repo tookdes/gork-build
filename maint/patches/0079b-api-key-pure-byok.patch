@@ -125,7 +125,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
      /// Terminal failure for a turn the auth-retry budget gave up on — the one
      /// terminal path that lives outside [`Self::handle_sampling_failure`].
      ///
-@@ -1054,8 +1063,8 @@ impl SessionActor {
+@@ -1054,10 +1063,10 @@ impl SessionActor {
      }
      pub(crate) async fn fail_turn_auth_budget_exhausted(&self, message: String) -> acp::Error {
          const STATUS: Option<u16> = Some(401);
@@ -135,6 +135,9 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
                  &auth_manager.auth_remedy().after_retries_exhausted(),
                  message,
                  STATUS,
+             ),
+-            None => ("auth", message),
++            _ => ("auth", message),
 @@ -1398,17 +1407,25 @@ impl SessionActor {
              self.signals_handle().record_error_typed("empty_response");
          }
