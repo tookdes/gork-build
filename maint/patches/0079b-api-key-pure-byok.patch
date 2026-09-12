@@ -1,26 +1,27 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Sat, 12 Sep 2026 12:00:00 +0800
+Date: Sat, 12 Sep 2026 12:42:00 +0800
 Subject: [PATCH] api-key-pure-byok: isolate explicit models and auth errors
 
 When [auth].preferred_method is pinned to api_key, treat the process as a
 pure BYOK configuration: only explicitly configured [model.*] entries are
 selectable. This prevents a custom catalog alias such as `grok` routing to
-`grok-4.6` from being re-resolved as the built-in `grok-4.6` entry after the
-session actor stores the wire slug.
+`grok-4.6` from being re-resolved as the built-in `grok-4.6` entry after
+the session actor stores the wire slug.
 
-API-key sessions also have no interactive session to refresh. Keep 401/auth
-failures on the API-error path instead of surfacing OAuth/WebLogin `/login`
-guidance from stale auth-manager state.
+API-key sessions also have no interactive session to refresh. Keep
+401/auth failures on the API-error path instead of surfacing
+OAuth/WebLogin `/login` guidance from stale auth-manager state.
 
 Gork-Patch-Id: api-key-pure-byok
 Gork-Invariant: api-key-explicit-models-only
 Gork-Risk: critical
 ---
+
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -3631,6 +3631,20 @@ pub(crate) fn resolve_model_list(
+@@ -12,3 +12,17 @@
          );
          resolved.insert(key.clone(), entry);
      }
@@ -30,7 +31,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
 +    // same-named built-in entry (for example `grok` -> `grok-4.6`).
 +    if matches!(
 +        cfg.grok_com_config.preferred_method,
-+        Some(crate::auth::PreferredAuthMethod::ApiKey)
++        Some(xai_grok_login::PreferredAuthMethod::ApiKey)
 +    ) {
 +        resolved.retain(|key, _| cfg.config_models.contains_key(key));
 +        tracing::info!(
@@ -40,11 +41,10 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
 +    }
      for (key, entry) in resolved.iter_mut() {
          if let Some(ref mut provider) = entry.auth_provider {
-             if provider.is_fail_closed() {
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
 --- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
-@@ -1170,6 +1170,36 @@ fn parses_model_api_key() {
+@@ -4,6 +4,36 @@
      assert_eq!(model.info.base_url, "https://api.example.com/v1");
      assert_eq!(model.api_key, Some("sk-test-key-12345".to_string()));
  }
@@ -80,12 +80,10 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/co
 +}
  #[test]
  fn parses_auth_provider_tables_and_model_reference() {
-     let raw_config: toml::Value = toml::from_str(
 diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
 --- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
-@@ -1606,8 +1606,11 @@ pub(super) fn apply_retry_state(
-             if is_credit_limit {
+@@ -2,7 +2,10 @@
                  session.credit_limit_blocked = true;
              } else if is_free_usage {
                  session.free_usage_blocked = true;
@@ -97,7 +95,10 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notificat
                  is_reauth = true;
                  scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
              } else if *rate_limited {
-@@ -1634,7 +1636,9 @@ pub(super) fn apply_retry_state(
+diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+--- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
++++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+@@ -1,7 +1,9 @@
              is_credit_limit = super::super::dispatch::is_credit_limit_error(None, message);
              if is_credit_limit {
                  session.credit_limit_blocked = true;
@@ -111,23 +112,24 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notificat
 diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
 --- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
 +++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-@@ -1024,6 +1024,13 @@ impl SessionActor {
+@@ -4,6 +4,13 @@
          };
          (remedy.turn_error_type(), message)
      }
-+    /// The selected ACP method, not whatever stale credential may still exist
-+    /// in auth.json, decides whether interactive auth recovery is meaningful.
++
++    /// The selected ACP method, not stale material in auth.json, decides
++    /// whether interactive auth recovery is meaningful.
 +    fn using_api_key_auth(&self) -> bool {
 +        self.auth_method_id.load().as_deref().is_some_and(|id| {
 +            crate::agent::auth_method::AuthMethodKind::from_id(id).is_api_key()
 +        })
 +    }
-     /// Terminal failure for a turn the auth-retry budget gave up on — the one
-     /// terminal path that lives outside [`Self::handle_sampling_failure`].
-     ///
-@@ -1054,10 +1063,10 @@ impl SessionActor {
-     }
-     pub(crate) async fn fail_turn_auth_budget_exhausted(&self, message: String) -> acp::Error {
+ 
+     /// Terminal failure when consecutive Length salvages exceed the cap: executing more calls is not converging, so surface the pre-salvage `MaxTokensTruncation` failure.
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+@@ -1,10 +1,10 @@
          const STATUS: Option<u16> = Some(401);
          let (error_type, message) = match self.auth_manager.as_ref() {
 -            Some(auth_manager) => self.apply_auth_remedy(
@@ -138,20 +140,20 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
              ),
 -            None => ("auth", message),
 +            _ => ("auth", message),
-@@ -1398,17 +1407,25 @@ impl SessionActor {
-             self.signals_handle().record_error_typed("empty_response");
-         }
-         // 5c+5d. Auth diagnostics for sampling failures.
-+        // The live ACP auth method is authoritative. A pinned API-key process may
-+        // still have stale OAuth/WebLogin material in auth.json; that state must
-+        // never turn a provider 401 into interactive `/login` guidance.
+         };
+         self.log_terminal_failure(error_type, STATUS, &message);
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+@@ -1,15 +1,21 @@
+         // 5c and 5d. Auth diagnostics for sampling failures.
 +        let using_api_key = self.using_api_key_auth();
          let auth_mode = self
              .auth_manager
              .as_ref()
              .and_then(|am| am.current_or_expired())
              .map(|a| a.auth_mode)
-             .unwrap_or(crate::auth::AuthMode::ApiKey);
+             .unwrap_or(xai_grok_login::AuthMode::ApiKey);
 -        let auth_mode_str = format!("{auth_mode:?}");
 +        let auth_mode_str = if using_api_key {
 +            "ApiKey".to_owned()
@@ -159,17 +161,17 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
 +            format!("{auth_mode:?}")
 +        };
          let client_version = xai_grok_version::VERSION;
-         // 5c. Legacy WebLogin auth — always surface a deprecation message
-         //     regardless of error type.
--        if auth_mode == crate::auth::AuthMode::WebLogin {
-+        if !using_api_key && auth_mode == crate::auth::AuthMode::WebLogin {
+ 
+         // 5c. Legacy WebLogin auth: always show a deprecation message regardless of error type.
+-        if auth_mode == xai_grok_login::AuthMode::WebLogin {
++        if !using_api_key && auth_mode == xai_grok_login::AuthMode::WebLogin {
              let msg = format!(
                  "{detailed_message}\n\n\
                   You are using a deprecated authentication method (WebLogin).\n\
-@@ -1481,12 +1496,14 @@ impl SessionActor {
-         } else {
-             error.kind.as_str()
-         };
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+@@ -1,10 +1,12 @@
          let (error_type, detailed_message) = match self.auth_manager.as_ref() {
 -            Some(auth_manager) if error_type == "auth" => self.apply_auth_remedy(
 -                &auth_manager.auth_remedy(),

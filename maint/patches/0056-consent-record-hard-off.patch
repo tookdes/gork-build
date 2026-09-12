@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 12:41:00 +0800
+Subject: [PATCH] consent-record-hard-off: keep consent acknowledgements local
+
+Upstream records consent acceptance through the ACP
+x.ai/consent/record method. Gork Build keeps the local acknowledgement so
+the UI does not re-prompt, but never emits or sends the upstream record.
+
+Gork-Patch-Id: consent-record-hard-off
+Gork-Invariant: consent-ack-stays-local
+Gork-Risk: critical
+---
+ crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs | 3 ++-
+ crates/codegen/xai-grok-pager/src/app/effects/mod.rs                | 8 ++++++++
+ 2 files changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs b/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
+--- a/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
++++ b/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
+@@ -6,7 +6,9 @@
+             acked: false,
+         });
+     }
+-    effects.push(Effect::RecordConsentUpstream { notice_id, version });
++    if !xai_grok_version::PRIVACY_BUILD {
++        effects.push(Effect::RecordConsentUpstream { notice_id, version });
++    }
+     effects.extend(finish_consent(app));
+     effects
+ }
+diff --git a/crates/codegen/xai-grok-pager/src/app/effects/mod.rs b/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
+--- a/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
++++ b/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
+@@ -1,4 +1,12 @@
+         Effect::RecordConsentUpstream { notice_id, version } => {
++            if xai_grok_version::PRIVACY_BUILD {
++                tracing::info!(
++                    %notice_id,
++                    version,
++                    "privacy build: consent acknowledgement stays local"
++                );
++                return;
++            }
+             let tx = acp_tx.clone();
+             tasks
+                 .spawn(async move {
+-- 
+2.55.0

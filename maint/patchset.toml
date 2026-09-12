@@ -42,6 +42,21 @@ file = "0050-privacy-contract-tests.patch"
 critical = true
 contracts = ["telemetry-resolvers", "updater-product-build"]
 
+# Upstream 1.0.24 can enable whole-session server writeback from CLI, env, or
+# remote settings. Gork Build keeps this channel hard-off.
+[[patch]]
+id = "session-writeback-hard-off"
+file = "0055-session-writeback-hard-off.patch"
+critical = true
+contracts = []
+
+# Consent acceptance remains local; never emit x.ai/consent/record.
+[[patch]]
+id = "consent-record-hard-off"
+file = "0056-consent-record-hard-off.patch"
+critical = true
+contracts = []
+
 [[patch]]
 id = "egress-guard"
 file = "0060-egress-guard.patch"
@@ -90,16 +105,8 @@ file = "0079-openai-strict-responses-wire.patch"
 critical = true
 contracts = []
 
-# Temporary rustfmt consolidation for the 1.0.12 rebase. Once the full
-# compiler/test matrix is green, squash each hunk back into its owning patch.
-[[patch]]
-id = "rustfmt-unblock"
-file = "0079a-rustfmt-unblock.patch"
-critical = true
-contracts = []
-
-# Pure API-key mode is a hard routing boundary: only explicit [model.*]
-# entries are selectable, and auth failures must never fall through to OAuth.
+# API-key mode is a hard routing boundary: only explicit [model.*] entries are
+# selectable, and API-key failures must never fall through to OAuth remedies.
 [[patch]]
 id = "api-key-pure-byok"
 file = "0079b-api-key-pure-byok.patch"

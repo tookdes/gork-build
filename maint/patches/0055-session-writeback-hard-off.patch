@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 12:40:00 +0800
+Subject: [PATCH] session-writeback-hard-off: keep sessions local
+
+Gork Build is a privacy build: session persistence is local-only. Ignore
+CLI, environment, and remote attempts to select Writeback, and keep a
+second guard at the RemoteSync construction chokepoint so a future caller
+cannot upload session history by bypassing StorageMode::resolve.
+
+Gork-Patch-Id: session-writeback-hard-off
+Gork-Invariant: session-writeback-disabled
+Gork-Risk: critical
+---
+ crates/codegen/xai-grok-shell/src/config/mod.rs          | 4 ++++
+ crates/codegen/xai-grok-shell/src/session/persistence.rs | 4 ++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/crates/codegen/xai-grok-shell/src/config/mod.rs b/crates/codegen/xai-grok-shell/src/config/mod.rs
+--- a/crates/codegen/xai-grok-shell/src/config/mod.rs
++++ b/crates/codegen/xai-grok-shell/src/config/mod.rs
+@@ -792,6 +792,10 @@ impl StorageMode {
+         cli_override: Option<&str>,
+         remote: Option<&crate::util::config::RemoteSettings>,
+     ) -> Self {
++        if xai_grok_version::PRIVACY_BUILD {
++            return Self::Local;
++        }
++
+         if let Some(mode) = cli_override {
+             match mode {
+                 "writeback" => return Self::Writeback,
+diff --git a/crates/codegen/xai-grok-shell/src/session/persistence.rs b/crates/codegen/xai-grok-shell/src/session/persistence.rs
+--- a/crates/codegen/xai-grok-shell/src/session/persistence.rs
++++ b/crates/codegen/xai-grok-shell/src/session/persistence.rs
+@@ -2530,6 +2530,10 @@ fn init_remote_sync(
+     storage_mode: StorageMode,
+     auth_manager: Option<Arc<xai_grok_login::AuthManager>>,
+ ) -> io::Result<Option<RemoteSync>> {
++    if xai_grok_version::PRIVACY_BUILD {
++        return Ok(None);
++    }
++
+     match storage_mode {
+         StorageMode::Local => Ok(None),
+         StorageMode::Writeback => {
+-- 
+2.55.0
