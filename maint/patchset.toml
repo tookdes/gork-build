@@ -98,6 +98,14 @@ file = "0079a-rustfmt-unblock.patch"
 critical = true
 contracts = []
 
+# Pure API-key mode is a hard routing boundary: only explicit [model.*]
+# entries are selectable, and auth failures must never fall through to OAuth.
+[[patch]]
+id = "api-key-pure-byok"
+file = "0079b-api-key-pure-byok.patch"
+critical = true
+contracts = []
+
 # Trailing non-critical: may be skipped on upstream conflict (draft PR still opens).
 [[patch]]
 id = "product-identity"
