@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 12:00:00 +0800
+Subject: [PATCH] api-key-pure-byok: isolate explicit models and auth errors
+
+When [auth].preferred_method is pinned to api_key, treat the process as a
+pure BYOK configuration: only explicitly configured [model.*] entries are
+selectable. This prevents a custom catalog alias such as `grok` routing to
+`grok-4.6` from being re-resolved as the built-in `grok-4.6` entry after the
+session actor stores the wire slug.
+
+API-key sessions also have no interactive session to refresh. Keep 401/auth
+failures on the API-error path instead of surfacing OAuth/WebLogin `/login`
+guidance from stale auth-manager state.
+
+Gork-Patch-Id: api-key-pure-byok
+Gork-Invariant: api-key-explicit-models-only
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+--- a/crates/codegen/xai-grok-shell/src/agent/config.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
+@@ -3631,6 +3631,20 @@ pub(crate) fn resolve_model_list(
+         );
+         resolved.insert(key.clone(), entry);
+     }
++    // A pinned API-key process is pure BYOK. Do not leave remote/built-in
++    // catalog rows around: a session stores the routing slug (`ModelInfo.model`),
++    // and a later key-first lookup could otherwise reinterpret that slug as a
++    // same-named built-in entry (for example `grok` -> `grok-4.6`).
++    if matches!(
++        cfg.grok_com_config.preferred_method,
++        Some(crate::auth::PreferredAuthMethod::ApiKey)
++    ) {
++        resolved.retain(|key, _| cfg.config_models.contains_key(key));
++        tracing::info!(
++            model_count = resolved.len(),
++            "preferred_method=api_key: using explicit [model.*] catalog only"
++        );
++    }
+     for (key, entry) in resolved.iter_mut() {
+         if let Some(ref mut provider) = entry.auth_provider {
+             if provider.is_fail_closed() {
+diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+--- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
++++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+@@ -1170,6 +1170,36 @@ fn parses_model_api_key() {
+     assert_eq!(model.info.base_url, "https://api.example.com/v1");
+     assert_eq!(model.api_key, Some("sk-test-key-12345".to_string()));
+ }
++#[test]
++fn api_key_pin_uses_explicit_catalog_and_preserves_slug_alias() {
++    let raw_config: toml::Value = toml::from_str(
++        r#"
++            [auth]
++            preferred_method = "api_key"
++
++            [model.grok]
++            model = "grok-4.6"
++            base_url = "https://gateway.example/v1"
++            context_window = 200000
++            api_key = "sk-test"
++            api_backend = "responses"
++            "#,
++    )
++    .unwrap();
++    let cfg = Config::new_from_toml_cfg(&raw_config).expect("config should parse");
++    let resolved = resolve_model_list(&cfg, None);
++
++    assert!(resolved.contains_key("grok"));
++    assert!(
++        !resolved.contains_key("grok-4.6"),
++        "pinned API-key mode must not retain the colliding built-in catalog id"
++    );
++    let model = find_model_by_id(&resolved, "grok-4.6")
++        .expect("routing slug should resolve to the explicit alias entry");
++    assert_eq!(model.info.model, "grok-4.6");
++    assert_eq!(model.info.base_url, "https://gateway.example/v1");
++    assert_eq!(model.api_key.as_deref(), Some("sk-test"));
++}
+ #[test]
+ fn parses_auth_provider_tables_and_model_reference() {
+     let raw_config: toml::Value = toml::from_str(
+diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+--- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
++++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+@@ -1606,8 +1606,11 @@ pub(super) fn apply_retry_state(
+             if is_credit_limit {
+                 session.credit_limit_blocked = true;
+             } else if is_free_usage {
+                 session.free_usage_blocked = true;
+-            } else if !*rate_limited && is_reauthable_failure(None, reason) {
++            } else if !*rate_limited
++                && !is_api_key_auth
++                && is_reauthable_failure(None, reason)
++            {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+             } else if *rate_limited {
+@@ -1634,7 +1636,9 @@ pub(super) fn apply_retry_state(
+             is_credit_limit = super::super::dispatch::is_credit_limit_error(None, message);
+             if is_credit_limit {
+                 session.credit_limit_blocked = true;
+-            } else if is_reauthable_failure(Some(error_type.as_str()), message) {
++            } else if !is_api_key_auth
++                && is_reauthable_failure(Some(error_type.as_str()), message)
++            {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+             } else if wire == crate::app::error_display::WireErrorType::DiskFull {
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+@@ -1024,6 +1024,13 @@ impl SessionActor {
+         };
+         (remedy.turn_error_type(), message)
+     }
++    /// The selected ACP method, not whatever stale credential may still exist
++    /// in auth.json, decides whether interactive auth recovery is meaningful.
++    fn using_api_key_auth(&self) -> bool {
++        self.auth_method_id.load().as_deref().is_some_and(|id| {
++            crate::agent::auth_method::AuthMethodKind::from_id(id).is_api_key()
++        })
++    }
+     /// Terminal failure for a turn the auth-retry budget gave up on — the one
+     /// terminal path that lives outside [`Self::handle_sampling_failure`].
+     ///
+@@ -1054,8 +1063,8 @@ impl SessionActor {
+     }
+     pub(crate) async fn fail_turn_auth_budget_exhausted(&self, message: String) -> acp::Error {
+         const STATUS: Option<u16> = Some(401);
+         let (error_type, message) = match self.auth_manager.as_ref() {
+-            Some(auth_manager) => self.apply_auth_remedy(
++            Some(auth_manager) if !self.using_api_key_auth() => self.apply_auth_remedy(
+                 &auth_manager.auth_remedy().after_retries_exhausted(),
+                 message,
+                 STATUS,
+@@ -1398,17 +1407,25 @@ impl SessionActor {
+             self.signals_handle().record_error_typed("empty_response");
+         }
+         // 5c+5d. Auth diagnostics for sampling failures.
++        // The live ACP auth method is authoritative. A pinned API-key process may
++        // still have stale OAuth/WebLogin material in auth.json; that state must
++        // never turn a provider 401 into interactive `/login` guidance.
++        let using_api_key = self.using_api_key_auth();
+         let auth_mode = self
+             .auth_manager
+             .as_ref()
+             .and_then(|am| am.current_or_expired())
+             .map(|a| a.auth_mode)
+             .unwrap_or(crate::auth::AuthMode::ApiKey);
+-        let auth_mode_str = format!("{auth_mode:?}");
++        let auth_mode_str = if using_api_key {
++            "ApiKey".to_owned()
++        } else {
++            format!("{auth_mode:?}")
++        };
+         let client_version = xai_grok_version::VERSION;
+         // 5c. Legacy WebLogin auth — always surface a deprecation message
+         //     regardless of error type.
+-        if auth_mode == crate::auth::AuthMode::WebLogin {
++        if !using_api_key && auth_mode == crate::auth::AuthMode::WebLogin {
+             let msg = format!(
+                 "{detailed_message}\n\n\
+                  You are using a deprecated authentication method (WebLogin).\n\
+@@ -1481,12 +1496,14 @@ impl SessionActor {
+         } else {
+             error.kind.as_str()
+         };
+         let (error_type, detailed_message) = match self.auth_manager.as_ref() {
+-            Some(auth_manager) if error_type == "auth" => self.apply_auth_remedy(
+-                &auth_manager.auth_remedy(),
+-                detailed_message,
+-                error.status_code,
+-            ),
++            Some(auth_manager) if error_type == "auth" && !using_api_key => {
++                self.apply_auth_remedy(
++                    &auth_manager.auth_remedy(),
++                    detailed_message,
++                    error.status_code,
++                )
++            }
+             _ => (error_type, detailed_message),
+         };
+         self.log_terminal_failure(error_type, error.status_code, &detailed_message);
+-- 
+2.55.0
