@@ -7,22 +7,60 @@ Gork-Patch-Id: retention-opt-out
 Gork-Invariant: retention-locked-opt-out
 Gork-Risk: critical
 ---
- .../xai-grok-pager/src/settings/defs.rs       | 34 +++++--------------
+ crates/codegen/xai-grok-login/src/manager.rs  |  6 ++++
+ crates/codegen/xai-grok-login/src/model.rs    |  3 ++
+ .../xai-grok-pager/src/settings/defs.rs       | 31 ++++++-------------
  .../xai-grok-pager/src/settings/registry.rs   |  8 ++---
  .../src/slash/commands/privacy.rs             |  5 ++-
- .../xai-grok-pager/tests/settings_e2e.rs      | 18 +++-------
- .../xai-grok-shell/src/auth/manager.rs        |  6 ++++
- .../codegen/xai-grok-shell/src/auth/model.rs  |  3 ++
- .../xai-grok-shell/src/extensions/privacy.rs  | 18 ++++++++--
- 7 files changed, 41 insertions(+), 51 deletions(-)
+ .../xai-grok-pager/tests/settings_e2e.rs      | 18 +++--------
+ .../xai-grok-shell/src/extensions/privacy.rs  | 18 +++++++++--
+ 7 files changed, 42 insertions(+), 47 deletions(-)
 
+diff --git a/crates/codegen/xai-grok-login/src/manager.rs b/crates/codegen/xai-grok-login/src/manager.rs
+index cfae68d852526de826b90f207a4370f8b2b3ac3f..4fa73322a028ed7f8fb095ab85fcb17a273b0259 100644
+--- a/crates/codegen/xai-grok-login/src/manager.rs
++++ b/crates/codegen/xai-grok-login/src/manager.rs
+@@ -680,6 +680,9 @@ impl AuthManager {
+     /// Reads [`Self::current_or_expired`] because neither flag changes on token expiry and `current()` returns `None` during the refresh window. Fail-open: with no credential this returns `false` (not disabled).
+     /// Collection paths that must not act on unknown privacy state should use the fail-closed [`Self::allows_data_collection`] instead.
+     pub fn is_data_collection_disabled(&self) -> bool {
++        if xai_grok_version::research_data_collection_forbidden() {
++            return true;
++        }
+         self.current_or_expired()
+             .is_some_and(|a| a.is_data_collection_disabled())
+     }
+@@ -687,6 +690,9 @@ impl AuthManager {
+     /// Missing or cleared auth (e.g. after a mid-session `/logout`) counts as disabled.
+     /// Nothing may leave the machine while the privacy state is unknown.
+     pub fn allows_data_collection(&self) -> bool {
++        if xai_grok_version::research_data_collection_forbidden() {
++            return false;
++        }
+         self.current_or_expired()
+             .is_some_and(|a| !a.is_data_collection_disabled())
+     }
+diff --git a/crates/codegen/xai-grok-login/src/model.rs b/crates/codegen/xai-grok-login/src/model.rs
+index 3a4c14ac4bc162f81792746698a683c44af9fd28..f09b63ee31033e70e8dc02dcb6d1e82b68db65e8 100644
+--- a/crates/codegen/xai-grok-login/src/model.rs
++++ b/crates/codegen/xai-grok-login/src/model.rs
+@@ -189,6 +189,9 @@ impl GrokAuth {
+     /// Use this for trace-upload and research-data gates.
+     /// Product analytics (`telemetry_enabled`) and user-facing sync features should use `is_zdr_team()` directly.
+     pub fn is_data_collection_disabled(&self) -> bool {
++        if xai_grok_version::research_data_collection_forbidden() {
++            return true;
++        }
+         self.is_zdr_team() || self.coding_data_retention_opt_out
+     }
+ 
 diff --git a/crates/codegen/xai-grok-pager/src/settings/defs.rs b/crates/codegen/xai-grok-pager/src/settings/defs.rs
-index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..2ff93d01c39543b39371a20a23111e3ebac68d45 100644
+index 1441a3554af330d6ac1f2d5846ac84353915adbd..9fef66754efae43b6cd728b730757a7f1cc08474 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/defs.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/defs.rs
-@@ -121,19 +121,12 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
+@@ -99,19 +99,12 @@ const PERMISSION_MODE_CHOICES: &[EnumChoice] = &[
+ // Coding-data-sharing catalog. Two choices only: the pager has no `Option`/`Unset` representation for this field.
  // `supports_preview: false` because toggling fires an async ACP call that can fail. Commit on Enter only.
- // ---------------------------------------------------------------------------
  
 -// The setting's own description carries the full explanation, so the choices are bare labels; an empty description collapses each to a single line
 -const CODING_DATA_SHARING_CHOICES: &[EnumChoice] = &[
@@ -44,19 +82,16 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..2ff93d01c39543b39371a20a23111e3e
 +    description: "Gork Build locks coding data retention to opt-out. Opt-in is not available.",
 +}];
  
- // ---------------------------------------------------------------------------
- // Plan-mode catalog.
-@@ -1167,21 +1160,13 @@ pub fn default_settings() -> Vec<SettingMeta> {
+ // Plan-mode catalog. `Ask` mode is not exposed here; it is only reachable via Shift+Tab. `supports_preview: false`
+ // because toggling fires an ACP request that gates tool dispatch. Commit on Enter only.
+@@ -1121,17 +1114,14 @@ pub fn default_settings() -> Vec<SettingMeta> {
              restart_required: false,
              hidden_in_minimal: false,
          },
--        // SHELL-owned. Persisted in auth metadata (not config.toml).
--        // Reads from `PagerLocalSnapshot.coding_data_sharing_opt_out`.
--        // The default "opt-out" matches `AuthEntry::coding_data_retention_opt_out = true`
--        // That is the safer consumer default; server enrichment may still opt the user in
--        // ZDR / non-admin guards are enforced at dispatch time.
--        // Do not put "telemetry" in keywords: that word is the config-file analytics toggle (Monitoring / Configuration docs)
+-        // SHELL-owned. Do not put "telemetry" in keywords: that word is the config-file analytics toggle (Monitoring /
+-        // Configuration docs).
 +        // SHELL-owned. Gork Build keeps the account-facing retention setting locked to opt-out.
++        // Do not put "telemetry" in keywords: that word is the config-file analytics toggle (Monitoring / Configuration docs).
          SettingMeta {
              key: "coding_data_sharing",
              category: SettingCategory::Privacy,
@@ -71,7 +106,7 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..2ff93d01c39543b39371a20a23111e3e
              keywords: &[
                  "privacy",
                  "data",
-@@ -1189,7 +1174,6 @@ pub fn default_settings() -> Vec<SettingMeta> {
+@@ -1139,7 +1129,6 @@ pub fn default_settings() -> Vec<SettingMeta> {
                  "coding",
                  "retention",
                  "training",
@@ -80,10 +115,10 @@ index 9ed368f190d4fecc53be2b70a3b560a42e7b61df..2ff93d01c39543b39371a20a23111e3e
              ],
              kind: SettingKind::Enum {
 diff --git a/crates/codegen/xai-grok-pager/src/settings/registry.rs b/crates/codegen/xai-grok-pager/src/settings/registry.rs
-index 070dc61ee4fa0a826542cf92f176063f223d41c9..2aef2b671d22ae2c60d5f5e4b2f7bb434dbfd3a6 100644
+index 8ca1b9a482e3ac39db159d29384a0fd82fea199b..460d7bd881488776326627a4735fbc688373fd03 100644
 --- a/crates/codegen/xai-grok-pager/src/settings/registry.rs
 +++ b/crates/codegen/xai-grok-pager/src/settings/registry.rs
-@@ -663,12 +663,8 @@ pub fn current_value_for(
+@@ -648,12 +648,8 @@ pub fn current_value_for(
          )),
          // max_thoughts_width: `u16` widened to `i64`.
          "max_thoughts_width" => Some(SettingValue::Int(ui.max_thoughts_width as i64)),
@@ -119,10 +154,10 @@ index 200515d123b7169b5f17e1bf13518466d7f82b3f..87d0b7bbfdb9c29a85c3498cdbdfee44
      }
  
 diff --git a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
-index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..c700376e8e0d9d019972d973e7a6c392ae98e75f 100644
+index 7ae4e8f5bfbf0b3a72d282aa99a16bdddfcbe7ad..ed3cb764defbf6dafe37f1c8327bb28c4cea53c8 100644
 --- a/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
 +++ b/crates/codegen/xai-grok-pager/tests/settings_e2e.rs
-@@ -4823,7 +4823,7 @@ fn pr9_picker_seeds_choices_idx_from_pager_snapshot_opt_out_true() {
+@@ -4771,7 +4771,7 @@ fn pr9_picker_seeds_choices_idx_from_pager_snapshot_opt_out_true() {
      }
  }
  
@@ -131,7 +166,7 @@ index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..c700376e8e0d9d019972d973e7a6c392
  #[test]
  fn pr9_coding_data_sharing_choices_use_canonical_strings() {
      let reg = SettingsRegistry::defaults();
-@@ -4833,19 +4833,9 @@ fn pr9_coding_data_sharing_choices_use_canonical_strings() {
+@@ -4781,19 +4781,9 @@ fn pr9_coding_data_sharing_choices_use_canonical_strings() {
          _ => panic!("coding_data_sharing must be Enum"),
      };
      assert_eq!(
@@ -154,46 +189,8 @@ index f069843ecd7d46b992ef6828b2fcb8870e8d53bb..c700376e8e0d9d019972d973e7a6c392
      );
  }
  
-diff --git a/crates/codegen/xai-grok-shell/src/auth/manager.rs b/crates/codegen/xai-grok-shell/src/auth/manager.rs
-index 36ba1919b7db8c4eddcb5ff7e52b537b513558fb..42c4900b9688b1cd9b478061d2bbd97a523ec3b4 100644
---- a/crates/codegen/xai-grok-shell/src/auth/manager.rs
-+++ b/crates/codegen/xai-grok-shell/src/auth/manager.rs
-@@ -863,6 +863,9 @@ impl AuthManager {
-     /// that must not act on unknown privacy state should use the fail-closed
-     /// [`Self::allows_data_collection`] instead.
-     pub(crate) fn is_data_collection_disabled(&self) -> bool {
-+        if xai_grok_version::research_data_collection_forbidden() {
-+            return true;
-+        }
-         self.current_or_expired()
-             .is_some_and(|a| a.is_data_collection_disabled())
-     }
-@@ -873,6 +876,9 @@ impl AuthManager {
-     /// disabled — nothing may leave the machine while the privacy state is
-     /// unknown.
-     pub(crate) fn allows_data_collection(&self) -> bool {
-+        if xai_grok_version::research_data_collection_forbidden() {
-+            return false;
-+        }
-         self.current_or_expired()
-             .is_some_and(|a| !a.is_data_collection_disabled())
-     }
-diff --git a/crates/codegen/xai-grok-shell/src/auth/model.rs b/crates/codegen/xai-grok-shell/src/auth/model.rs
-index a05c8a609a1dc549524ffb0181d14cd5266f30b4..b0de44289780c5937cc8c92941a72138178a05bd 100644
---- a/crates/codegen/xai-grok-shell/src/auth/model.rs
-+++ b/crates/codegen/xai-grok-shell/src/auth/model.rs
-@@ -186,6 +186,9 @@ impl GrokAuth {
-     /// Product analytics (`telemetry_enabled`) and user-facing sync
-     /// features should use `is_zdr_team()` directly.
-     pub(crate) fn is_data_collection_disabled(&self) -> bool {
-+        if xai_grok_version::research_data_collection_forbidden() {
-+            return true;
-+        }
-         self.is_zdr_team() || self.coding_data_retention_opt_out
-     }
- 
 diff --git a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
-index 9161dc76ce6d63b395a12dedac080ce065fc6815..526b4c6006e8a032a02158fa3f2f73aad6c013f4 100644
+index a4fff7cbe03cfa783e37e31c45d25bf16580a01d..24307f0eaa5b5a9a4aa81b3f6683fc653a2a9466 100644
 --- a/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 +++ b/crates/codegen/xai-grok-shell/src/extensions/privacy.rs
 @@ -26,6 +26,18 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
@@ -224,9 +221,9 @@ index 9161dc76ce6d63b395a12dedac080ce065fc6815..526b4c6006e8a032a02158fa3f2f73aa
      });
  
      let provider: std::sync::Arc<dyn xai_grok_auth::AuthCredentialProvider> = std::sync::Arc::new(
-@@ -82,10 +94,10 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
-     // background GET /user enrichment that may read stale ACL state
-     // and overwrite the opt-out flag back to its previous value.
+@@ -81,10 +93,10 @@ async fn handle_set(agent: &MvpAgent, args: &acp::ExtRequest) -> ExtResult {
+     // Use save_without_enrichment to avoid a race
+     // update() spawns a background GET /user enrichment that may read stale ACL state and overwrite the opt-out flag back to its previous value
      let mut updated = auth.clone();
 -    updated.coding_data_retention_opt_out = params.coding_data_retention_opt_out;
 +    updated.coding_data_retention_opt_out = opt_out;
@@ -238,10 +235,10 @@ index 9161dc76ce6d63b395a12dedac080ce065fc6815..526b4c6006e8a032a02158fa3f2f73aa
      }))
  }
 
-base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
-prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
-prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
-prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
 -- 
-2.55.0
+2.53.0.windows.2
 

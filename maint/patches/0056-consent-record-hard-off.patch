@@ -1,24 +1,25 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Sat, 12 Sep 2026 12:41:00 +0800
+From: tooktang <tooktang@gmail.com>
+Date: Sat, 12 Sep 2026 13:58:10 +0800
 Subject: [PATCH] consent-record-hard-off: keep consent acknowledgements local
 
-Upstream records consent acceptance through the ACP
-x.ai/consent/record method. Gork Build keeps the local acknowledgement so
-the UI does not re-prompt, but never emits or sends the upstream record.
+Upstream records consent acceptance through the ACP x.ai/consent/record method. Gork Build keeps the local acknowledgement so the UI does not re-prompt, but never emits or sends the upstream record.
 
 Gork-Patch-Id: consent-record-hard-off
+
 Gork-Invariant: consent-ack-stays-local
+
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs | 3 ++-
- crates/codegen/xai-grok-pager/src/app/effects/mod.rs                | 8 ++++++++
- 2 files changed, 10 insertions(+), 1 deletion(-)
+ .../xai-grok-pager/src/app/dispatch/session/lifecycle.rs  | 4 +++-
+ crates/codegen/xai-grok-pager/src/app/effects/mod.rs      | 8 ++++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
 
 diff --git a/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs b/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
+index 36734450b731b1509eb8f4d683672666ee1e280f..97aca268797864c43afd601fb43683aa538f2cb8 100644
 --- a/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
-@@ -6,7 +6,9 @@
+@@ -666,7 +666,9 @@ pub(in crate::app::dispatch) fn dispatch_accept_consent(app: &mut AppView) -> Ve
              acked: false,
          });
      }
@@ -30,9 +31,12 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/dispatch/session/lifecycle.rs
      effects
  }
 diff --git a/crates/codegen/xai-grok-pager/src/app/effects/mod.rs b/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
+index d50435d09e40d865755de41677fa4a172c462b50..594c1aa4fd02fd68871949014e309c67735189b3 100644
 --- a/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/effects/mod.rs
-@@ -1,4 +1,12 @@
+@@ -2176,6 +2176,14 @@ pub(crate) fn execute(
+                 });
+         }
          Effect::RecordConsentUpstream { notice_id, version } => {
 +            if xai_grok_version::PRIVACY_BUILD {
 +                tracing::info!(
@@ -40,10 +44,20 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/effects/mod.rs b/crates/codeg
 +                    version,
 +                    "privacy build: consent acknowledgement stays local"
 +                );
-+                return;
++                return (false, meta);
 +            }
              let tx = acp_tx.clone();
              tasks
                  .spawn(async move {
+
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
 -- 
-2.55.0
+2.53.0.windows.2
+

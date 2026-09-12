@@ -17,9 +17,10 @@ Gork-Risk: critical
  2 files changed, 8 insertions(+)
 
 diff --git a/crates/codegen/xai-grok-shell/src/config/mod.rs b/crates/codegen/xai-grok-shell/src/config/mod.rs
+index 68de639ed26e0144d8ee52a803ca81b52b8fb4d2..076f80f2505051edfa764acaaf353ccb91812cec 100644
 --- a/crates/codegen/xai-grok-shell/src/config/mod.rs
 +++ b/crates/codegen/xai-grok-shell/src/config/mod.rs
-@@ -792,6 +792,10 @@ impl StorageMode {
+@@ -791,6 +791,10 @@ impl StorageMode {
          cli_override: Option<&str>,
          remote: Option<&crate::util::config::RemoteSettings>,
      ) -> Self {
@@ -31,9 +32,10 @@ diff --git a/crates/codegen/xai-grok-shell/src/config/mod.rs b/crates/codegen/xa
              match mode {
                  "writeback" => return Self::Writeback,
 diff --git a/crates/codegen/xai-grok-shell/src/session/persistence.rs b/crates/codegen/xai-grok-shell/src/session/persistence.rs
+index baab555575f00a0c04ff0c6789d18ac493a3b0fa..3a28bcc741d0cc700c334838b02cd0f4a0af7d89 100644
 --- a/crates/codegen/xai-grok-shell/src/session/persistence.rs
 +++ b/crates/codegen/xai-grok-shell/src/session/persistence.rs
-@@ -2530,6 +2530,10 @@ fn init_remote_sync(
+@@ -2551,6 +2551,10 @@ fn init_remote_sync(
      storage_mode: StorageMode,
      auth_manager: Option<Arc<xai_grok_login::AuthManager>>,
  ) -> io::Result<Option<RemoteSync>> {
@@ -44,5 +46,14 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/persistence.rs b/crates/c
      match storage_mode {
          StorageMode::Local => Ok(None),
          StorageMode::Writeback => {
+
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
 -- 
-2.55.0
+2.53.0.windows.2
+

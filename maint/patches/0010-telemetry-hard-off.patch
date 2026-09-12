@@ -7,16 +7,107 @@ Gork-Patch-Id: telemetry-hard-off
 Gork-Invariant: product-telemetry-disabled
 Gork-Risk: critical
 ---
+ crates/codegen/xai-grok-otel/Cargo.toml       |   1 +
+ crates/codegen/xai-grok-otel/src/provider.rs  |  63 +++++++++
  crates/codegen/xai-grok-telemetry/Cargo.toml  |   6 +-
- .../codegen/xai-grok-telemetry/src/client.rs  | 115 ++++++++++++++++--
+ .../codegen/xai-grok-telemetry/src/client.rs  | 123 +++++++++++++++---
  .../codegen/xai-grok-telemetry/src/config.rs  |  44 +++----
- .../xai-grok-telemetry/src/otel_layer/mod.rs  |   5 +
  .../codegen/xai-grok-telemetry/src/sentry.rs  |  11 +-
- crates/codegen/xai-mixpanel/src/lib.rs        |  61 +++-------
- 6 files changed, 154 insertions(+), 88 deletions(-)
+ crates/codegen/xai-mixpanel/src/lib.rs        |  61 +++------
+ 7 files changed, 215 insertions(+), 94 deletions(-)
 
+diff --git a/crates/codegen/xai-grok-otel/Cargo.toml b/crates/codegen/xai-grok-otel/Cargo.toml
+index e59a60bcfc8d77039a7517946617702484d73c4d..17875d75d742d809469573f34bc314aa34603586 100644
+--- a/crates/codegen/xai-grok-otel/Cargo.toml
++++ b/crates/codegen/xai-grok-otel/Cargo.toml
+@@ -28,6 +28,7 @@ url = { workspace = true }
+ xai-grok-auth = { workspace = true }
+ xai-grok-extra-ca = { workspace = true }
+ xai-grok-env = { workspace = true, optional = true }
++xai-grok-version = { workspace = true, features = ["privacy"] }
+ xai-grok-secrets = { workspace = true }
+ 
+ [dev-dependencies]
+diff --git a/crates/codegen/xai-grok-otel/src/provider.rs b/crates/codegen/xai-grok-otel/src/provider.rs
+index b2e1ba29b35b72dcf7dff2a2a85ca5207670289a..66c474508cd709e7172bd43a4359aba319610908 100644
+--- a/crates/codegen/xai-grok-otel/src/provider.rs
++++ b/crates/codegen/xai-grok-otel/src/provider.rs
+@@ -70,6 +70,11 @@ fn build_tracer_provider(
+     mode: OtelProviderMode,
+     session_metrics_gate: SessionMetricsGate,
+ ) -> SdkTracerProvider {
++    // Gork privacy build: vendor OTLP tracing is never constructed, even if
++    // CLI/settings request Server mode or enable the exporter.
++    if xai_grok_version::research_data_collection_forbidden() {
++        return SdkTracerProvider::builder().build();
++    }
+     match mode {
+         OtelProviderMode::Server => build_server_provider(client, config, session_metrics_gate),
+         OtelProviderMode::Local => SdkTracerProvider::builder().build(),
+@@ -357,3 +362,61 @@ pub fn shutdown_provider() {
+         started.elapsed().as_millis()
+     );
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::config::OtelExporterConfig;
++    use xai_grok_auth::{CredentialSnapshot, HttpAuth};
++
++    struct ForbiddenCredentials;
++
++    impl HttpAuth for ForbiddenCredentials {
++        fn apply(&self, _: reqwest::RequestBuilder, _: &str) -> reqwest::RequestBuilder {
++            panic!("privacy provider must not authorize an exporter request");
++        }
++    }
++
++    #[async_trait::async_trait]
++    impl AuthCredentialProvider for ForbiddenCredentials {
++        fn snapshot(&self) -> CredentialSnapshot {
++            panic!("privacy provider must return before reading exporter credentials");
++        }
++
++        async fn refresh_after_unauthorized(&self) -> bool {
++            panic!("privacy provider must not refresh exporter credentials");
++        }
++    }
++
++    #[test]
++    fn server_exporter_is_never_constructed_under_privacy() {
++        assert!(xai_grok_version::research_data_collection_forbidden());
++        // Server mode must stay local even when settings explicitly enable OTLP.
++        // build_server_provider reads a snapshot first, so losing the privacy
++        // chokepoint fails here before any network client can be constructed.
++        for enabled in [false, true] {
++            let provider = build_tracer_provider(
++                OtelClientInfo {
++                    client_name: "privacy-test",
++                    client_version: "test",
++                    service_version: "test",
++                    app_entrypoint: "test",
++                },
++                OtelLayerConfig {
++                    credentials: Arc::new(ForbiddenCredentials),
++                    token_header_value: "test".into(),
++                    alpha_test_key: None,
++                    exporter: OtelExporterConfig {
++                        enabled,
++                        traces_url: "https://otel.example.invalid/v1/traces".into(),
++                        ..Default::default()
++                    },
++                },
++                OtelProviderMode::Server,
++                Arc::new(|| true),
++            );
++            provider.force_flush().unwrap();
++            provider.shutdown().unwrap();
++        }
++    }
++}
 diff --git a/crates/codegen/xai-grok-telemetry/Cargo.toml b/crates/codegen/xai-grok-telemetry/Cargo.toml
-index b24cb62d0698add82df6f38e5daedac651ea4fe8..99339a891f40c8f30ec4a4a48215644d85b848c2 100644
+index f449328043514122a15e271f79b138076bec9914..c09a8027a2a2b7e673e6bb5155a9e23904c695cb 100644
 --- a/crates/codegen/xai-grok-telemetry/Cargo.toml
 +++ b/crates/codegen/xai-grok-telemetry/Cargo.toml
 @@ -3,8 +3,8 @@ license = "Apache-2.0"
@@ -30,15 +121,15 @@ index b24cb62d0698add82df6f38e5daedac651ea4fe8..99339a891f40c8f30ec4a4a48215644d
  
  [features]
  default = []
-@@ -32,6 +32,7 @@ git2 = { version = "0.20", default-features = false, features = [
+@@ -30,6 +30,7 @@ git2 = { version = "0.20", default-features = false, features = [
+     "vendored-libgit2",
+ ] }
  reqwest = { workspace = true }
- url = { workspace = true }
- xai-grok-env = { workspace = true }
 +xai-grok-version = { workspace = true, features = ["privacy"] }
  xai-grok-secrets = { workspace = true }
  xai-mixpanel = { workspace = true }
  xai-grok-config = { workspace = true }
-@@ -58,7 +59,6 @@ xai-grok-session-events = { workspace = true }
+@@ -57,7 +58,6 @@ xai-grok-session-events = { workspace = true }
  # mapping lives next to the trace-upload lifecycle events it labels.
  xai-file-utils = { path = "../xai-file-utils" }
  xai-tty-utils = { workspace = true }
@@ -47,21 +138,30 @@ index b24cb62d0698add82df6f38e5daedac651ea4fe8..99339a891f40c8f30ec4a4a48215644d
  uuid = { workspace = true, features = ["v5", "v7"] }
  obfstr = { workspace = true, optional = true }
 diff --git a/crates/codegen/xai-grok-telemetry/src/client.rs b/crates/codegen/xai-grok-telemetry/src/client.rs
-index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5ce55cf3a2 100644
+index 2ca21fce9d8e661163f8aa8854e45308dcb1a81f..000e52beaf70e7ffb35548cd3b049891f20775e1 100644
 --- a/crates/codegen/xai-grok-telemetry/src/client.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/client.rs
-@@ -85,13 +85,16 @@ impl TelemetryClient {
-         subscription_tier: Option<String>,
-         http_client: reqwest::Client,
-     ) -> Self {
+@@ -77,20 +77,21 @@ impl TelemetryClient {
+             && env_bool(ALLOW_DEV_BUILD_ENV) != Some(true)
+             && config.disarm_baked_sinks()
+         {
+-            DEV_BUILD_DISARM_LOGGED
+-                .call_once(|| {
+-                    tracing::info!(
++            DEV_BUILD_DISARM_LOGGED.call_once(|| {
++                tracing::info!(
+                     "TELEMETRY_DEV_BUILD_SINKS_DISARMED: dev build; baked production telemetry sinks cleared (set {ALLOW_DEV_BUILD_ENV}=1 to opt in)"
+                 );
+-                });
++            });
+         }
 -        let mixpanel = if config.mixpanel_enabled {
 -            config
 -                .mixpanel_token
 -                .as_ref()
 -                .map(|token| Arc::new(Mixpanel::with_client(token.as_str(), http_client.clone())))
 +        // Gork Build: never construct a Mixpanel client or keep a first-party
-+        // events sink. `Mixpanel::{track,engage}` and [`track`] are also
-+        // no-ops as a second line of defense.
++        // events sink. `Mixpanel::{track,engage}` and [`track`] are no-ops too.
 +        let _ = (config.mixpanel_enabled, config.mixpanel_token.as_ref());
 +        let privacy = xai_grok_version::research_data_collection_forbidden();
 +        let mixpanel: Option<Arc<Mixpanel>> = None;
@@ -73,8 +173,8 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
          };
          let deployment_id = deployment_key
              .filter(|s| !s.is_empty())
-@@ -103,8 +106,8 @@ impl TelemetryClient {
- 
+@@ -101,8 +102,8 @@ impl TelemetryClient {
+         };
          Self {
              mode,
 -            events_url: config.events_url,
@@ -84,9 +184,9 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
              mixpanel,
              user_id,
              team_id,
-@@ -289,6 +292,10 @@ pub const RESERVED_EVENT_KEYS: &[&str] = &[
- 
- /// Core telemetry emitter. Routes to product events + Mixpanel.
+@@ -273,6 +274,10 @@ pub const RESERVED_EVENT_KEYS: &[&str] = &[
+ ];
+ /// Core telemetry emitter. Routes to product events and Mixpanel.
  pub async fn track(event_name: &str, request_id: &str, ctx: &UserContext, mut metadata: Metadata) {
 +    // Entry-point hard-off: even a mis-initialized client cannot POST.
 +    if xai_grok_version::research_data_collection_forbidden() {
@@ -95,7 +195,7 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
      let client = {
          let guard = lock.lock().unwrap_or_else(|err| err.into_inner());
-@@ -472,7 +479,7 @@ pub fn init(
+@@ -428,7 +433,7 @@ pub fn init(
  ) {
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
      let mut guard = lock.lock().unwrap_or_else(|err| err.into_inner());
@@ -104,7 +204,7 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
          None
      } else {
          Some(TelemetryClient::from_config(
-@@ -505,7 +512,7 @@ pub fn init_if_needed(
+@@ -459,7 +464,7 @@ pub fn init_if_needed(
      subscription_tier: Option<String>,
      http_client: reqwest::Client,
  ) {
@@ -113,18 +213,17 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
          return;
      }
      let lock = TELEMETRY_CLIENT.get_or_init(|| Mutex::new(None));
-@@ -551,6 +558,9 @@ mod tests {
- 
-     /// SessionMetrics must not attempt Mixpanel profile engage — sync_profile
-     /// is a no-op unless mode is fully Enabled.
-+    ///
-+    /// Gork Build: `init` itself refuses to install a client, so this is a
-+    /// stronger no-op than upstream (no live SessionMetrics funnel).
+@@ -498,7 +503,7 @@ mod tests {
+     fn event_value_strips_workspace_prefix() {
+         assert_eq!(event_value("grok-workspace-turn"), "turn");
+     }
+-    /// SessionMetrics must not attempt Mixpanel profile engage; sync_profile is a no-op unless mode is fully Enabled.
++    /// SessionMetrics must not attempt Mixpanel profile engage; privacy init is a stronger no-op.
      #[test]
      fn sync_profile_is_noop_in_session_metrics_mode() {
-         // No tokio runtime here BY DESIGN: if the gate wrongly falls through,
-@@ -593,12 +603,93 @@ mod tests {
-         // Explicit call must no-op too (init already invoked it once).
+         assert!(
+@@ -533,12 +538,94 @@ mod tests {
+         );
          sync_profile();
          assert!(
 -            is_session_metrics_enabled(),
@@ -134,7 +233,7 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
          );
          assert!(!is_enabled(), "product analytics must stay off");
      }
- 
+-    /// Names without a known emitter prefix pass through unchanged.
 +    #[test]
 +    fn init_enabled_still_installs_no_client_under_privacy() {
 +        struct ClearClient;
@@ -216,14 +315,16 @@ index 1f24e5ae3ed47b3079ba4b732121278f870c328e..d159f49ca98c37274276af7b24a99b5c
 +        .await;
 +    }
 +
-     /// Names without a known emitter prefix pass through unchanged (preserves
-     /// the old `unwrap_or(event_name)` fallback).
++    /// Names without a known emitter prefix pass through unchanged (preserves
++    /// the old `unwrap_or(event_name)` fallback).
      #[test]
+     fn event_value_passes_through_unprefixed() {
+         assert_eq!(event_value("turn"), "turn");
 diff --git a/crates/codegen/xai-grok-telemetry/src/config.rs b/crates/codegen/xai-grok-telemetry/src/config.rs
-index e3d07f344bad05e50849a10f24f839aa6eb987f6..6fbe549033b4b7499cd6ac9c896848f3e055188c 100644
+index bed3b1766db68f5b42dfe8aaa7f71524c57189ac..2c225f9bbc067d7ca7ea32ab52d903dd13f54992 100644
 --- a/crates/codegen/xai-grok-telemetry/src/config.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/config.rs
-@@ -151,23 +151,19 @@ fn build_env_default(value: Option<&'static str>) -> Option<String> {
+@@ -183,23 +183,19 @@ fn build_env_default(value: Option<&'static str>) -> Option<String> {
  }
  impl Default for TelemetryConfig {
      fn default() -> Self {
@@ -259,8 +360,8 @@ index e3d07f344bad05e50849a10f24f839aa6eb987f6..6fbe549033b4b7499cd6ac9c896848f3
              otel_enabled: None,
              otel_metrics_exporter: None,
              otel_logs_exporter: None,
-@@ -251,14 +247,14 @@ mod tests {
-         assert_eq!(build_env_default(Some(" key ")), Some("key".to_owned()));
+@@ -333,15 +329,15 @@ mod tests {
+         );
      }
      #[test]
 -    fn default_is_build_env_layer_when_feature_off() {
@@ -281,25 +382,10 @@ index e3d07f344bad05e50849a10f24f839aa6eb987f6..6fbe549033b4b7499cd6ac9c896848f3
 +        assert_eq!(cfg.trace_upload, Some(false));
 +        assert_eq!(cfg.enabled, Some(false));
      }
- }
-diff --git a/crates/codegen/xai-grok-telemetry/src/otel_layer/mod.rs b/crates/codegen/xai-grok-telemetry/src/otel_layer/mod.rs
-index f030db3beebe8653be5393b4f568dd5669a999da..dc5f00c88d1aa6f0e43c23500ac0b95acbf7ee8e 100644
---- a/crates/codegen/xai-grok-telemetry/src/otel_layer/mod.rs
-+++ b/crates/codegen/xai-grok-telemetry/src/otel_layer/mod.rs
-@@ -106,6 +106,11 @@ where
-         .with_filter(otel_filter)
- }
- fn build_tracer_provider(client: OtelClientInfo, config: OtelLayerConfig) -> SdkTracerProvider {
-+    // Privacy build: never construct the vendor OTLP exporter (cli-chat-proxy
-+    // traces), including workspace Server mode.
-+    if xai_grok_version::research_data_collection_forbidden() {
-+        return SdkTracerProvider::builder().build();
-+    }
-     match instrumentation::current_mode() {
-         instrumentation::InstrumentationMode::Server => build_server_provider(client, config),
-         _ => SdkTracerProvider::builder().build(),
+     #[test]
+     fn otel_timeout_fields_accept_int_or_string() {
 diff --git a/crates/codegen/xai-grok-telemetry/src/sentry.rs b/crates/codegen/xai-grok-telemetry/src/sentry.rs
-index 801aa2b7b2ffee757bcf2ca915c70209a6cbd075..bbf43f12846017e587b8739633fdc6f61ec83a85 100644
+index 36a1241900b018a4d4150c006f0dc9be9910915d..a161684d70dbd11ae8bfe79f6ffeac06151d183e 100644
 --- a/crates/codegen/xai-grok-telemetry/src/sentry.rs
 +++ b/crates/codegen/xai-grok-telemetry/src/sentry.rs
 @@ -32,14 +32,17 @@ static CONFIG: OnceLock<Config> = OnceLock::new();
@@ -325,7 +411,7 @@ index 801aa2b7b2ffee757bcf2ca915c70209a6cbd075..bbf43f12846017e587b8739633fdc6f6
      let scrubber = Scrubber::from_env();
  
 diff --git a/crates/codegen/xai-mixpanel/src/lib.rs b/crates/codegen/xai-mixpanel/src/lib.rs
-index cd748e55d7402283c770d717da0bd74365f85ed8..a4b950afa7aa1d084d004d81657f84e490143b8f 100644
+index 5addb395aa5fc3a9664df87af0960b65b5c3ec7d..9df7ca1c1fa472f28b4547afe3a30549be4d230b 100644
 --- a/crates/codegen/xai-mixpanel/src/lib.rs
 +++ b/crates/codegen/xai-mixpanel/src/lib.rs
 @@ -5,7 +5,6 @@
@@ -430,8 +516,8 @@ index cd748e55d7402283c770d717da0bd74365f85ed8..a4b950afa7aa1d084d004d81657f84e4
      }
  }
 
-base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
-prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
 -- 
-2.55.0
+2.53.0.windows.2
 

@@ -48,6 +48,7 @@ BOOTSTRAP_GROUPS: list[tuple[str, str, str, str, list[str]]] = [
         [
             "crates/codegen/xai-mixpanel/",
             "crates/codegen/xai-grok-telemetry/",
+            "crates/codegen/xai-grok-otel/",
         ],
     ),
     (
@@ -196,6 +197,7 @@ def run(
         cwd=cwd or repo_root(),
         check=False,
         text=True,
+        encoding="utf-8",
         capture_output=capture,
         env=merged,
     )
@@ -500,6 +502,10 @@ def run_lock_policy(root: Path, src: Path) -> None:
 
     def resolve_cmd(cmd: list[str]) -> list[str]:
         out = list(cmd)
+        # Reuse the interpreter running patchctl: Windows often has a
+        # non-functional Store alias named python3 even when Python is installed.
+        if out and out[0] in {"python", "python3"}:
+            out[0] = sys.executable
         if len(out) >= 2 and out[1].startswith("maint/"):
             out[1] = str(root / out[1])
         return out

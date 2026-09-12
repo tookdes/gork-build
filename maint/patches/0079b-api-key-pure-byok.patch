@@ -1,34 +1,59 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Sat, 12 Sep 2026 12:42:00 +0800
+From: tooktang <tooktang@gmail.com>
+Date: Sat, 12 Sep 2026 14:05:16 +0800
 Subject: [PATCH] api-key-pure-byok: isolate explicit models and auth errors
 
-When [auth].preferred_method is pinned to api_key, treat the process as a
-pure BYOK configuration: only explicitly configured [model.*] entries are
-selectable. This prevents a custom catalog alias such as `grok` routing to
-`grok-4.6` from being re-resolved as the built-in `grok-4.6` entry after
-the session actor stores the wire slug.
-
-API-key sessions also have no interactive session to refresh. Keep
-401/auth failures on the API-error path instead of surfacing
-OAuth/WebLogin `/login` guidance from stale auth-manager state.
+Pinned API-key mode keeps only explicit model catalog entries and does not use stale session credentials to produce OAuth/WebLogin recovery advice.
 
 Gork-Patch-Id: api-key-pure-byok
+
 Gork-Invariant: api-key-explicit-models-only
+
 Gork-Risk: critical
 ---
+ .../app/acp_handler/session_notification.rs   |  9 +++--
+ .../xai-grok-shell/src/agent/config.rs        | 12 +++++++
+ .../xai-grok-shell/src/agent/config_tests.rs  | 30 +++++++++++++++++
+ .../session/acp_session_impl/sampler_turn.rs  | 33 ++++++++++++++-----
+ 4 files changed, 73 insertions(+), 11 deletions(-)
 
+diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+index d90b3ba10881f4e34979fabb120952cbed15d4a8..c40e39de3802be50143f5ea9e2de04cbc9d643b2 100644
+--- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
++++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+@@ -1602,7 +1602,10 @@ pub(super) fn apply_retry_state(
+                 session.credit_limit_blocked = true;
+             } else if is_free_usage {
+                 session.free_usage_blocked = true;
+-            } else if !*rate_limited && is_reauthable_failure(None, reason) {
++            } else if !*rate_limited
++                && !is_api_key_auth
++                && is_reauthable_failure(None, reason)
++            {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+             } else if *rate_limited {
+@@ -1632,7 +1635,9 @@ pub(super) fn apply_retry_state(
+             is_credit_limit = super::super::dispatch::is_credit_limit_error(None, message);
+             if is_credit_limit {
+                 session.credit_limit_blocked = true;
+-            } else if is_reauthable_failure(Some(error_type.as_str()), message) {
++            } else if !is_api_key_auth
++                && is_reauthable_failure(Some(error_type.as_str()), message)
++            {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+             } else if wire == crate::app::error_display::WireErrorType::DiskFull {
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
+index e19f6ac77342205544c25c89402f1868d6283fe6..b2712f51df5574004132701cde67ceb38876976a 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -12,3 +12,17 @@
+@@ -3407,6 +3407,18 @@ pub(crate) fn resolve_model_list(
          );
          resolved.insert(key.clone(), entry);
      }
-+    // A pinned API-key process is pure BYOK. Do not leave remote/built-in
-+    // catalog rows around: a session stores the routing slug (`ModelInfo.model`),
-+    // and a later key-first lookup could otherwise reinterpret that slug as a
-+    // same-named built-in entry (for example `grok` -> `grok-4.6`).
++    // A pinned API-key process is pure BYOK. A session stores the routing slug,
++    // so a later key-first lookup must not reinterpret it as a built-in row.
 +    if matches!(
 +        cfg.grok_com_config.preferred_method,
 +        Some(xai_grok_login::PreferredAuthMethod::ApiKey)
@@ -41,14 +66,15 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
 +    }
      for (key, entry) in resolved.iter_mut() {
          if let Some(ref mut provider) = entry.auth_provider {
+             if provider.is_fail_closed() {
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
+index 6aeb522e869b6202d3fac3260d903dbac0722a67..77f12d859160bb867391fd3ea4b97b54dfa634f8 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config_tests.rs
-@@ -4,6 +4,36 @@
-     assert_eq!(model.info.base_url, "https://api.example.com/v1");
+@@ -821,6 +821,36 @@ fn parses_model_api_key() {
      assert_eq!(model.api_key, Some("sk-test-key-12345".to_string()));
  }
-+#[test]
+ #[test]
 +fn api_key_pin_uses_explicit_catalog_and_preserves_slug_alias() {
 +    let raw_config: toml::Value = toml::from_str(
 +        r#"
@@ -78,45 +104,18 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config_tests.rs b/crates/co
 +    assert_eq!(model.info.base_url, "https://gateway.example/v1");
 +    assert_eq!(model.api_key.as_deref(), Some("sk-test"));
 +}
- #[test]
++#[test]
  fn parses_auth_provider_tables_and_model_reference() {
-diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
---- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
-+++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
-@@ -2,7 +2,10 @@
-                 session.credit_limit_blocked = true;
-             } else if is_free_usage {
-                 session.free_usage_blocked = true;
--            } else if !*rate_limited && is_reauthable_failure(None, reason) {
-+            } else if !*rate_limited
-+                && !is_api_key_auth
-+                && is_reauthable_failure(None, reason)
-+            {
-                 is_reauth = true;
-                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
-             } else if *rate_limited {
-diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
---- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
-+++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
-@@ -1,7 +1,9 @@
-             is_credit_limit = super::super::dispatch::is_credit_limit_error(None, message);
-             if is_credit_limit {
-                 session.credit_limit_blocked = true;
--            } else if is_reauthable_failure(Some(error_type.as_str()), message) {
-+            } else if !is_api_key_auth
-+                && is_reauthable_failure(Some(error_type.as_str()), message)
-+            {
-                 is_reauth = true;
-                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
-             } else if wire == crate::app::error_display::WireErrorType::DiskFull {
+     let raw_config: toml::Value = toml::from_str(
+         r#"
 diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+index c22174a75cacb97fd6df77a015b50e3356f11010..f3a2ce56e753f4be0aab8e2f4aa2d7918a71ac41 100644
 --- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
 +++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-@@ -4,6 +4,13 @@
-         };
+@@ -1034,6 +1034,14 @@ impl SessionActor {
          (remedy.turn_error_type(), message)
      }
-+
+ 
 +    /// The selected ACP method, not stale material in auth.json, decides
 +    /// whether interactive auth recovery is meaningful.
 +    fn using_api_key_auth(&self) -> bool {
@@ -124,12 +123,12 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
 +            crate::agent::auth_method::AuthMethodKind::from_id(id).is_api_key()
 +        })
 +    }
- 
++
      /// Terminal failure when consecutive Length salvages exceed the cap: executing more calls is not converging, so surface the pre-salvage `MaxTokensTruncation` failure.
-diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
---- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-+++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-@@ -1,10 +1,10 @@
+     /// The sampler emitted only Completed events for these samples, so the error signal is recorded here.
+     pub(crate) async fn fail_turn_length_salvage_exhausted(&self) -> acp::Error {
+@@ -1059,12 +1067,12 @@ impl SessionActor {
+     pub(crate) async fn fail_turn_auth_budget_exhausted(&self, message: String) -> acp::Error {
          const STATUS: Option<u16> = Some(401);
          let (error_type, message) = match self.auth_manager.as_ref() {
 -            Some(auth_manager) => self.apply_auth_remedy(
@@ -142,10 +141,10 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
 +            _ => ("auth", message),
          };
          self.log_terminal_failure(error_type, STATUS, &message);
-diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
---- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-+++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-@@ -1,15 +1,21 @@
+         self.send_xai_notification(XaiSessionUpdate::RetryState(
+@@ -1495,17 +1503,22 @@ impl SessionActor {
+         }
+ 
          // 5c and 5d. Auth diagnostics for sampling failures.
 +        let using_api_key = self.using_api_key_auth();
          let auth_mode = self
@@ -168,10 +167,9 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
              let msg = format!(
                  "{detailed_message}\n\n\
                   You are using a deprecated authentication method (WebLogin).\n\
-diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
---- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-+++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
-@@ -1,10 +1,12 @@
+@@ -1589,11 +1602,13 @@ impl SessionActor {
+             error.kind.as_ref()
+         };
          let (error_type, detailed_message) = match self.auth_manager.as_ref() {
 -            Some(auth_manager) if error_type == "auth" => self.apply_auth_remedy(
 -                &auth_manager.auth_remedy(),
@@ -188,5 +186,23 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_
              _ => (error_type, detailed_message),
          };
          self.log_terminal_failure(error_type, error.status_code, &detailed_message);
+
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
+prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: a2df50b861b2ab43015c282c11cd62129b00da1f
+prerequisite-patch-id: bfb89cbf0c71585343cce591d9cad67c89e91bb5
+prerequisite-patch-id: b80a88a17a43f871df032e2206fb552f82580457
+prerequisite-patch-id: 0764a835ae378c0145a80cb414fb0607874f79d2
 -- 
-2.55.0
+2.53.0.windows.2
+

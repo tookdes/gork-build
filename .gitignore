@@ -5,3 +5,6 @@
 # Model A product tree — fetched + patched locally, never committed.
 .work/
 **/__pycache__/
+
+# Local apply status; contains machine-specific paths.
+maint/last-apply-status.json

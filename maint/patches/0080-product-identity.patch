@@ -12,11 +12,11 @@ Gork-Risk: medium
  2 files changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-pager-bin/Cargo.toml b/crates/codegen/xai-grok-pager-bin/Cargo.toml
-index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539061aa1a1 100644
+index 8858b8bcaa6d13cf0db8e5ed4be2bae2e39073b2..391ec1b2f8843ffbb79180aa9190134c22c59921 100644
 --- a/crates/codegen/xai-grok-pager-bin/Cargo.toml
 +++ b/crates/codegen/xai-grok-pager-bin/Cargo.toml
 @@ -3,8 +3,8 @@ name = "xai-grok-pager-bin"
- version = "1.0.12"
+ version = "1.0.24"
  edition.workspace = true
  license = "Apache-2.0"
 -authors = ["xAI"]
@@ -36,10 +36,10 @@ index 37234bcedee20a0eb1af1039e9b8b7a43b28e5fa..b4535b6d1c8e906193b5cd2010438539
  
  [dependencies]
 diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
-index 919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd..fbd9b23a0c9ce5e75a1213101d92d7de32ecd4f5 100644
+index 87f63aef9443ec272ef9a37dfd774b6114d08d8f..bf1b6b2b39868e9e5d03b9ff8947c49a73f089d9 100644
 --- a/crates/codegen/xai-grok-pager/src/app/cli.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
-@@ -397,9 +397,9 @@ pub struct LeaderArgs {
+@@ -394,9 +394,9 @@ pub struct LeaderArgs {
  }
  #[derive(Debug, Clone, Parser)]
  #[command(
@@ -52,21 +52,23 @@ index 919474ec0ec9fbef6d93ed2b90dc2ceeada3a0cd..fbd9b23a0c9ce5e75a1213101d92d7de
      next_display_order = None,
      help_template = "\
 
-base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
-prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
-prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
-prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
-prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
-prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
 prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
+prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
 prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
 prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
 prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
-prerequisite-patch-id: 85278b92aff49dd05eddfe8f5940f6cf72f2c82e
-prerequisite-patch-id: b46eb1b08826e4374b4e19bf895544b01b5e2db8
-prerequisite-patch-id: ed9f138b27104ad53710967cf3f7c67772b11ae4
-prerequisite-patch-id: 449712f7840b4a0010f81cbb0dac019ecf7f1a49
-prerequisite-patch-id: 035c2efb34e8428af9ca1d7fb4973b5ae8003908
+prerequisite-patch-id: a2df50b861b2ab43015c282c11cd62129b00da1f
+prerequisite-patch-id: bfb89cbf0c71585343cce591d9cad67c89e91bb5
+prerequisite-patch-id: b80a88a17a43f871df032e2206fb552f82580457
+prerequisite-patch-id: 0764a835ae378c0145a80cb414fb0607874f79d2
+prerequisite-patch-id: cda8d4abf9eda66dfb14026c587ffc770f1309a0
 -- 
-2.55.0
+2.53.0.windows.2
 

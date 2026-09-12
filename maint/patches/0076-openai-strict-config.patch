@@ -14,10 +14,10 @@ Gork-Risk: critical
  4 files changed, 68 insertions(+), 3 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
-index e7c1984c558791f361435ce79dd9103da36919b8..2b873365b49b2821323fe8adea057658e89e781a 100644
+index 9fa00e99c53cd17f60579acbd769fcd641a4c7ff..e37b4a47504f249c11e7e7177b558cdcd0636ba2 100644
 --- a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
 +++ b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
-@@ -67,6 +67,33 @@ When you omit `api_backend`, Grok uses `chat_completions`.
+@@ -79,6 +79,33 @@ When you omit `api_backend`, Grok uses `chat_completions`.
  
  To send provider-specific authentication or version headers -- for example, Anthropic's `x-api-key` -- use the `extra_headers` field described below. Grok sends those headers verbatim with every request to the endpoint.
  
@@ -51,7 +51,7 @@ index e7c1984c558791f361435ce79dd9103da36919b8..2b873365b49b2821323fe8adea057658
  ---
  
  ## Configuring Custom Models
-@@ -82,6 +109,7 @@ description = "Model description"          # Optional description
+@@ -94,6 +121,7 @@ description = "Model description"          # Optional description
  api_key = "sk-..."                        # API key for this provider (optional)
  env_key = "XAI_API_KEY"                   # Env var holding the API key (optional; string or array)
  api_backend = "chat_completions"          # "chat_completions", "responses", or "messages"
@@ -60,10 +60,10 @@ index e7c1984c558791f361435ce79dd9103da36919b8..2b873365b49b2821323fe8adea057658
  top_p = 0.95                              # Nucleus sampling parameter
  max_completion_tokens = 8192              # Maximum tokens per response
 diff --git a/crates/codegen/xai-grok-sampler/src/config.rs b/crates/codegen/xai-grok-sampler/src/config.rs
-index ba18b25abf95278c71f42a3741a5a1a130a326ce..0eaf0fdd9d96ef52da7fa74c182dae95e261c669 100644
+index ebe5052f90ff61273aa58e3afb595521b58b7c9e..3ae79baaab897217cc277ddb6aae9a8337accc5f 100644
 --- a/crates/codegen/xai-grok-sampler/src/config.rs
 +++ b/crates/codegen/xai-grok-sampler/src/config.rs
-@@ -23,6 +23,24 @@ pub enum AuthScheme {
+@@ -22,6 +22,24 @@ pub enum AuthScheme {
      XApiKey,
  }
  
@@ -86,13 +86,13 @@ index ba18b25abf95278c71f42a3741a5a1a130a326ce..0eaf0fdd9d96ef52da7fa74c182dae95
 +pub const OPENAI_COMPAT_MARKER: &str = "@grok/openai-compat";
 +
  /// All knobs that control a single sampling request.
- ///
- /// The session typically owns one `SamplerConfig` per active model
+ /// Auth is selected separately via `auth_scheme`, while `api_backend` controls only the request/response protocol shape.
+ #[derive(Debug, Clone, Serialize, Deserialize)]
 diff --git a/crates/codegen/xai-grok-sampler/src/lib.rs b/crates/codegen/xai-grok-sampler/src/lib.rs
-index 56e0e7d2c6f526250cde9b6b1dfb8c1721467b04..a3b7bdde64e7b298605f50ff27ad7c0e50a6a3bd 100644
+index b75b35e3ce502073d85ee0b97c143a4d58362372..340c2113712e2177cb58c16588412a838a4f0815 100644
 --- a/crates/codegen/xai-grok-sampler/src/lib.rs
 +++ b/crates/codegen/xai-grok-sampler/src/lib.rs
-@@ -40,8 +40,8 @@ pub use attribution::{
+@@ -36,8 +36,8 @@ pub use attribution::{
  };
  pub use client::{ApiBackend, SamplingClient, user_agent_string_for};
  pub use config::{
@@ -104,13 +104,13 @@ index 56e0e7d2c6f526250cde9b6b1dfb8c1721467b04..a3b7bdde64e7b298605f50ff27ad7c0e
  pub use doom_loop::DoomLoopSignalCollector;
  pub use events::{
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
-index 2381d08656de6d32aeefb33f33a77b46c2c6eaac..21e321b0e9a7746708ea8019c242ba0558feaa08 100644
+index fef6af8458faa8d9d5c0aa3e93dc2f1e5161f4e0..e19f6ac77342205544c25c89402f1868d6283fe6 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -13,7 +13,9 @@ use std::num::NonZeroU64;
- use std::path::PathBuf;
+@@ -13,7 +13,9 @@ use std::path::PathBuf;
  use std::sync::Arc;
  use xai_grok_agent::prompt::skills::SkillsConfig;
+ use xai_grok_login::{AuthManager, GrokComConfig, OidcAuthConfig};
 -use xai_grok_sampler::{AuthScheme, SamplerConfig};
 +use xai_grok_sampler::{
 +    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
@@ -118,7 +118,7 @@ index 2381d08656de6d32aeefb33f33a77b46c2c6eaac..21e321b0e9a7746708ea8019c242ba05
  use xai_grok_sampling_types::{
      CompactionAtTokens, CompactionsRemaining, REASONING_EFFORT_META_KEY,
      REASONING_EFFORTS_META_KEY, ReasoningEffort, ReasoningEffortOption,
-@@ -4077,6 +4079,7 @@ pub struct ConfigModelOverride {
+@@ -3825,6 +3827,7 @@ pub struct ConfigModelOverride {
      pub temperature: Option<f32>,
      pub top_p: Option<f32>,
      pub api_backend: Option<ApiBackend>,
@@ -126,7 +126,7 @@ index 2381d08656de6d32aeefb33f33a77b46c2c6eaac..21e321b0e9a7746708ea8019c242ba05
      #[serde(default)]
      pub extra_headers: IndexMap<String, String>,
      #[serde(default)]
-@@ -4151,6 +4154,22 @@ impl ConfigModelOverride {
+@@ -3901,6 +3904,22 @@ impl ConfigModelOverride {
          if !self.extra_headers.is_empty() {
              entry.info.extra_headers = self.extra_headers.clone();
          }
@@ -150,16 +150,18 @@ index 2381d08656de6d32aeefb33f33a77b46c2c6eaac..21e321b0e9a7746708ea8019c242ba05
              entry.info.query_params = self.query_params.clone();
          }
 
-base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
-prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
-prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
-prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
-prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
-prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
 prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
+prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
 prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
 prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
 prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
 -- 
-2.55.0
+2.53.0.windows.2
 

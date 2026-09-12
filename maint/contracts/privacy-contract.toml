@@ -41,6 +41,15 @@ command = [
 ]
 
 [[contract]]
+id = "otel-provider-chokepoint"
+group = "privacy"
+# The upstream OTLP provider moved out of xai-grok-telemetry in 1.0.24.
+command = [
+  "cargo", "test", "-p", "xai-grok-otel", "--lib",
+  "server_exporter_is_never_constructed_under_privacy",
+]
+
+[[contract]]
 id = "updater-product-build"
 group = "privacy"
 # Product binary has no updater-integration-tests feature: lib/unit tests only.
