@@ -12,10 +12,10 @@ Gork-Risk: critical
  1 file changed, 21 insertions(+), 8 deletions(-)
 
 diff --git a/crates/build/xai-proto-build/src/lib.rs b/crates/build/xai-proto-build/src/lib.rs
-index 3c36bc9d9af20ef9847025ceb8f1fcef4ac11bd5..c8dc2fddd35ad8f6b1293519146e69e361841ad7 100644
+index 9404ea49010119c0636917a41c328301546108af..aea5d7a13e8d3659c2cac5c789f290474e8bc875 100644
 --- a/crates/build/xai-proto-build/src/lib.rs
 +++ b/crates/build/xai-proto-build/src/lib.rs
-@@ -125,12 +125,20 @@ impl XaiProtoBuilder {
+@@ -141,12 +141,20 @@ impl XaiProtoBuilder {
              );
          }
  
@@ -38,7 +38,7 @@ index 3c36bc9d9af20ef9847025ceb8f1fcef4ac11bd5..c8dc2fddd35ad8f6b1293519146e69e3
  
              // Add protoc's well-known types include directory first (if found).
              // This is needed for Bazel sandboxed builds where protoc and its
-@@ -157,21 +165,26 @@ impl XaiProtoBuilder {
+@@ -173,21 +181,26 @@ impl XaiProtoBuilder {
              }
  
              let output =
@@ -72,15 +72,15 @@ index 3c36bc9d9af20ef9847025ceb8f1fcef4ac11bd5..c8dc2fddd35ad8f6b1293519146e69e3
                  }
  
 
-base-commit: eb267feff13129e568df38fb6fdf0ceb65f735d6
-prerequisite-patch-id: 461d9a629c55db377161aa870929fbbc6cb08b71
-prerequisite-patch-id: 8a4d87ffeadd239c0b5c504db10b4cf492fa89fa
-prerequisite-patch-id: 0fc38c6c0c974617e675e3c1061fd32df8f759d3
-prerequisite-patch-id: 561132f565e3d3e04c045251cbe0b2d3d98ecacb
-prerequisite-patch-id: b6702a9eb9a1c961a89eb827a84555ab6934cc72
-prerequisite-patch-id: af0edcd4d732f947ad389b939b5e9ea11cd00fa3
-prerequisite-patch-id: 1b6387045e2e53669f82c3625f622d782cbd40c2
+base-commit: bc7f02eddd3d84085849dc19ed216f11c23b0571
+prerequisite-patch-id: 660c8ffc457580c66a2096b479a451cd5f89408e
+prerequisite-patch-id: 1c75aa79ed5fef58990a12ccdca1fe6a75c0ffe2
+prerequisite-patch-id: 7b3ed7c603680fe3ae7acd8e4663cb718472f0e5
+prerequisite-patch-id: 8af8b1bcee74763bf2918c9f8bde41d346154a6f
+prerequisite-patch-id: a035a20defc60b0db2004938263bf2c491220ac7
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
 prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
 -- 
-2.50.1 (Apple Git-155)
+2.55.0
 

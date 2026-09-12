@@ -63,6 +63,41 @@ file = "0075-win-build-portability.patch"
 critical = true
 contracts = []
 
+# Strict OpenAI compatibility is critical for provider-neutral BYOK gateways.
+# Keep the feature split into small replay units so upstream protocol changes
+# are easy to rebase and diagnose independently.
+[[patch]]
+id = "openai-strict-config"
+file = "0076-openai-strict-config.patch"
+critical = true
+contracts = []
+
+[[patch]]
+id = "openai-strict-client-core"
+file = "0077-openai-strict-client-core.patch"
+critical = true
+contracts = []
+
+[[patch]]
+id = "openai-strict-chat-wire"
+file = "0078-openai-strict-chat-wire.patch"
+critical = true
+contracts = []
+
+[[patch]]
+id = "openai-strict-responses-wire"
+file = "0079-openai-strict-responses-wire.patch"
+critical = true
+contracts = []
+
+# Temporary rustfmt consolidation for the 1.0.12 rebase. Once the full
+# compiler/test matrix is green, squash each hunk back into its owning patch.
+[[patch]]
+id = "rustfmt-unblock"
+file = "0079a-rustfmt-unblock.patch"
+critical = true
+contracts = []
+
 # Trailing non-critical: may be skipped on upstream conflict (draft PR still opens).
 [[patch]]
 id = "product-identity"
@@ -75,4 +110,3 @@ id = "package-publishing"
 file = "0081-package-publishing.patch"
 critical = false
 contracts = []
-

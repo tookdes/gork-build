@@ -1,8 +1,8 @@
 {
-  "upstream": "eb267feff13129e568df38fb6fdf0ceb65f735d6",
-  "version": "1.0.3",
-  "source_rev": "e6a67a5408288c98380cd13f3b1fe1fbc01c9f1f",
-  "work_src": ".work/src",
+  "upstream": "bc7f02eddd3d84085849dc19ed216f11c23b0571",
+  "version": "1.0.12",
+  "source_rev": "d5a0335a47221e8c9519936cb693e9b6450227ec",
+  "work_src": "/home/runner/work/gork-build/gork-build/.work/src",
   "applied": [
     "0001-privacy-core.patch",
     "0010-telemetry-hard-off.patch",
@@ -13,6 +13,11 @@
     "0060-egress-guard.patch",
     "0070-supply-chain-policy.patch",
     "0075-win-build-portability.patch",
+    "0076-openai-strict-config.patch",
+    "0077-openai-strict-client-core.patch",
+    "0078-openai-strict-chat-wire.patch",
+    "0079-openai-strict-responses-wire.patch",
+    "0079a-rustfmt-unblock.patch",
     "0080-product-identity.patch",
     "0081-package-publishing.patch"
   ],
