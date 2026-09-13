@@ -1,0 +1,15 @@
+--- a/src/sandbox/linux.rs
++++ b/src/sandbox/linux.rs
+@@ -811,6 +811,12 @@
+ #[cfg(target_arch = "aarch64")]
+ pub const SYS_OPENAT2: i32 = 437;
+ 
++// ARM (armv7hf / EABI) — not upstream in nono 0.53.0; added for gork-build cross
++#[cfg(target_arch = "arm")]
++pub const SYS_OPENAT: i32 = 322;
++#[cfg(target_arch = "arm")]
++pub const SYS_OPENAT2: i32 = 437;
++
+ #[cfg(target_os = "linux")]
+ const SYS_SOCKET: i32 = libc::SYS_socket as i32;
+ #[cfg(target_os = "linux")]

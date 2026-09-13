@@ -125,3 +125,9 @@ id = "package-publishing"
 file = "0081-package-publishing.patch"
 critical = false
 contracts = []
+
+[[patch]]
+id = "armv7-portability"
+file = "0082-armv7-portability.patch"
+critical = false
+contracts = []

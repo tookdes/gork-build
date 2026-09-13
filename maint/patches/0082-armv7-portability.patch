@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 12 Sep 2026 17:26:05 +0000
+Subject: [PATCH] armv7-portability: rlim_t casts, pprof cfg, cargo armv7
+ targets
+
+Gork-Patch-Id: armv7-portability
+Gork-Invariant: armv7-rlim-pprof-cargo-targets
+Gork-Risk: medium
+---
+ .cargo/config.toml                            | 13 +++++++++++
+ .../xai-grok-pager/src/app/mermaid_worker.rs  | 10 +++++----
+ .../xai-grok-shell-base/src/cpu_profile.rs    | 22 +++++++++++++++----
+ .../codegen/xai-grok-shell/src/util/limits.rs |  2 +-
+ 4 files changed, 38 insertions(+), 9 deletions(-)
+
+diff --git a/.cargo/config.toml b/.cargo/config.toml
+index 912e93e094e2ee9be61fef0d0f93aaae3a110b51..88d13d787f688cdf6709f96821bf9cfc23aa7a50 100644
+--- a/.cargo/config.toml
++++ b/.cargo/config.toml
+@@ -35,6 +35,7 @@ rustflags = [
+ rustflags = ["-C", "force-unwind-tables=yes"]
+ 
+ [target.aarch64-unknown-linux-gnu]
++linker = "aarch64-linux-gnu-gcc"
+ rustflags = ["-C", "target-cpu=neoverse-v2", "-C", "force-unwind-tables=yes"]
+ 
+ [target.x86_64-unknown-linux-musl]
+@@ -79,3 +80,15 @@ AARCH64_APPLE_DARWIN_JEMALLOC_SYS_WITH_LG_PAGE = "14"
+ AARCH64_UNKNOWN_LINUX_GNU_JEMALLOC_SYS_WITH_LG_PAGE = "16"
+ AARCH64_UNKNOWN_LINUX_MUSL_JEMALLOC_SYS_WITH_LG_PAGE = "16"
+ AARCH64_UNKNOWN_LINUX_MUSL_JEMALLOC_SYS_WITH_BACKGROUND_THREADS = "0"
++
++[target.armv7-unknown-linux-gnueabihf]
++# linker set by cargo-zigbuild (zig cc -target arm-linux-gnueabihf.2.23)
++rustflags = ["-C", "force-unwind-tables=yes"]
++
++[target.armv7-unknown-linux-musleabihf]
++linker = "arm-linux-musleabihf-gcc"
++rustflags = [
++    "-C", "force-unwind-tables=yes",
++    "-C", "target-feature=+crt-static",
++]
++
+diff --git a/crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs b/crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs
+index 36ffde33c9d4e6b307c7acf564e7b850a6c558d6..1942ceb62b05974dfa2a2bc11195d1e57a9a2db5 100644
+--- a/crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs
++++ b/crates/codegen/xai-grok-pager/src/app/mermaid_worker.rs
+@@ -429,12 +429,14 @@ fn cap_child_address_space() {
+         if libc::getrlimit(libc::RLIMIT_AS, &mut lim) != 0 {
+             return;
+         }
+-        // Respect any existing (lower) hard limit; never raise it
+-        // `rlim_t` is `u64` on Linux, so the cap const needs no cast
++        // Respect any existing (lower) hard limit; never raise it.
++        // `rlim_t` is u64 on 64-bit Linux and u32 on 32-bit ARM — cast via rlim_t
++        // so this compiles on both (2 GiB cap fits in u32).
++        let cap_bytes = CHILD_ADDRESS_SPACE_CAP_BYTES as libc::rlim_t;
+         let cap = if lim.rlim_max == libc::RLIM_INFINITY {
+-            CHILD_ADDRESS_SPACE_CAP_BYTES
++            cap_bytes
+         } else {
+-            CHILD_ADDRESS_SPACE_CAP_BYTES.min(lim.rlim_max)
++            cap_bytes.min(lim.rlim_max)
+         };
+         if lim.rlim_cur == libc::RLIM_INFINITY || lim.rlim_cur > cap {
+             lim.rlim_cur = cap;
+diff --git a/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs b/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
+index e660b4b1f6472d14895e7b3d66a93d8661c053d6..d39b89c40b52522cb61127992ee25ff03cf767d3 100644
+--- a/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
++++ b/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
+@@ -655,11 +655,25 @@ mod platform {
+         frequency_hz: i32,
+         svg_path: &Path,
+     ) -> Result<Box<dyn ProfilerEngine>, ControlError> {
+-        let guard = pprof::ProfilerGuardBuilder::default()
++        // pprof::blocklist is only available on x86_64/aarch64/riscv64/loongarch64.
++        #[cfg(any(
++            target_arch = "x86_64",
++            target_arch = "aarch64",
++            target_arch = "riscv64",
++            target_arch = "loongarch64"
++        ))]
++        let builder = pprof::ProfilerGuardBuilder::default()
+             .frequency(frequency_hz)
+-            .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+-            .build()
+-            .map_err(|err| {
++            .blocklist(&["libc", "libgcc", "pthread", "vdso"]);
++        #[cfg(not(any(
++            target_arch = "x86_64",
++            target_arch = "aarch64",
++            target_arch = "riscv64",
++            target_arch = "loongarch64"
++        )))]
++        let builder = pprof::ProfilerGuardBuilder::default().frequency(frequency_hz);
++
++        let guard = builder.build().map_err(|err: pprof::Error| {
+                 ControlError::with_details(
+                     ControlErrorCode::InternalError,
+                     "failed to start CPU profiler",
+diff --git a/crates/codegen/xai-grok-shell/src/util/limits.rs b/crates/codegen/xai-grok-shell/src/util/limits.rs
+index d47a17fdfa62e13a87225efd654f3dccd94afabb..66508f6ee0dff55e175ddbb449404015cc091c38 100644
+--- a/crates/codegen/xai-grok-shell/src/util/limits.rs
++++ b/crates/codegen/xai-grok-shell/src/util/limits.rs
+@@ -79,7 +79,7 @@ fn rlimit(kind: RlimitKind) -> Option<(Option<u64>, Option<u64>)> {
+     if unsafe { libc::getrlimit(resource, &mut lim) } != 0 {
+         return None;
+     }
+-    let val = |v: libc::rlim_t| (v != libc::RLIM_INFINITY).then_some(v);
++    let val = |v: libc::rlim_t| (v != libc::RLIM_INFINITY).then_some(v as u64);
+     Some((val(lim.rlim_cur), val(lim.rlim_max)))
+ }
+ 
+
+base-commit: 37949780c144e37df692e3d669051a21fec24f20
+prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
+prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
+prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
+prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
+prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
+prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
+prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
+prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
+prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
+prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
+prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+prerequisite-patch-id: a2df50b861b2ab43015c282c11cd62129b00da1f
+prerequisite-patch-id: bfb89cbf0c71585343cce591d9cad67c89e91bb5
+prerequisite-patch-id: b80a88a17a43f871df032e2206fb552f82580457
+prerequisite-patch-id: 0764a835ae378c0145a80cb414fb0607874f79d2
+prerequisite-patch-id: cda8d4abf9eda66dfb14026c587ffc770f1309a0
+prerequisite-patch-id: 17573d171ccd54320cab346357ca91bef5818437
+prerequisite-patch-id: bd012db60cc160de402da87dd4f961a90cf1a283
+-- 
+2.47.3
+

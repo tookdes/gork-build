@@ -1,0 +1,41 @@
+--- a/aws-lc/crypto/rand_extra/urandom.c
++++ b/aws-lc/crypto/rand_extra/urandom.c
+@@ -351,32 +351,12 @@
+ }
+ 
+ static void ensure_dev_urandom_is_initialized(void) {
+-
+-  // On platforms where urandom doesn't block at startup, we ensure that the
+-  // kernel has sufficient entropy before continuing.
+-  for (;;) {
+-    int entropy_bits = 0;
+-    if (ioctl(urandom_fd, RNDGETENTCNT, &entropy_bits)) {
+-      fprintf(stderr,
+-        "RNDGETENTCNT on /dev/urandom failed. We cannot determine if the kernel "
+-        "has enough entropy and must abort.\n");
+-      abort();
+-    }
+-
+-    static const int kBitsNeeded = 256;
+-    if (entropy_bits >= kBitsNeeded) {
+-      break;
+-    }
+-
+-    fprintf(stderr,
+-      "RNDGETENTCNT on /dev/urandom indicates that the entropy pool does not "
+-      "have enough entropy. Rather than continue with poor entropy, this "
+-      "process will block until entropy is available.\n");
+-
+-    struct timespec sleep_time = {.tv_sec = 0, .tv_nsec = MILLISECONDS_250 };
+-    nanosleep(&sleep_time, &sleep_time);
+-  }
+-
++  // Gork Build / ancient kernels (e.g. Linux 3.4 without getrandom): many ARM
++  // boards report entropy_avail permanently below 256 even though /dev/urandom
++  // is usable. AWS-LC's RNDGETENTCNT wait would block forever there. Skip the
++  // estimate check and trust urandom reads (same practical behavior as modern
++  // getrandom after the CRNG is up).
++  (void)urandom_fd;
+   random_flavor_state = STATE_READY;
+ }
+ 

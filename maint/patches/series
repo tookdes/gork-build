@@ -17,3 +17,4 @@
 0079b-api-key-pure-byok.patch
 0080-product-identity.patch
 0081-package-publishing.patch
+0082-armv7-portability.patch

@@ -60,6 +60,8 @@ Comparison at a glance:
 | Whole-repo research packaging | Present upstream | **Disabled** |
 | Vendor auto-update | Yes (`x.ai/cli`) | **Hard-disabled** (rebuild / community releases) |
 | Coding-data retention | Opt-in available | **Opt-out only (locked)** |
+| OpenAI-compatible gateways | Grok/xAI wire extensions | Optional `openai_compat = "strict"` |
+| API-key model catalog | Built-in ids + config | Pinned API-key mode uses explicit `[model.*]` only |
 
 ---
 
@@ -173,6 +175,57 @@ mixpanel_enabled = false
 `[cli] auto_update` cannot re-enable vendor channels: this build never installs
 from x.ai (enforced at the install chokepoint). Rebuild from source or use
 community releases.
+
+## Custom models
+
+Gork Build adds two knobs on top of upstream custom models.
+
+### Strict OpenAI wire
+
+Some OpenAI-compatible gateways reject Grok/xAI request extensions. Set this on
+a `[model.*]` entry:
+
+```toml
+[model.gateway-gpt]
+model = "gpt-5"
+base_url = "https://gateway.example/v1"
+api_backend = "responses"   # or "chat_completions"
+openai_compat = "strict"
+```
+
+`openai_compat = "strict"` is supported with `chat_completions` and `responses`.
+It suppresses Grok/xAI-only headers and extensions, keeps standard OpenAI
+fields, and in Chat Completions uses `max_completion_tokens`, drops Grok
+assistant metadata, and moves tool-returned images out of `role = "tool"` into
+a following user multimodal message.
+
+The default is `openai_compat = "native"`. Do not combine `strict` with
+`api_backend = "messages"` (Anthropic Messages). The same text is patched into
+the upstream user guide after checkout:
+
+`.work/src/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md`
+
+### API-key BYOK and model pick
+
+Pinned API-key mode (`[auth] preferred_method = "api_key"`) is treated as pure
+BYOK:
+
+- only explicit `[model.*]` entries stay in the catalog
+- a session slug such as `grok` is not collapsed onto the built-in `grok-4.6` row
+- so `[model.grok]` with `model = "grok-4.6"` can remain your gateway alias
+- API-key 401s stay API-key errors; they are not rewritten into OAuth / WebLogin `/login`
+
+```toml
+[auth]
+preferred_method = "api_key"
+
+[model.grok]
+model = "grok-4.6"
+base_url = "https://gateway.example/v1"
+api_key = "sk-..."
+api_backend = "responses"
+openai_compat = "strict"
+```
 
 ## Documentation
 
