@@ -1,59 +1,80 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Mon, 31 Aug 2026 10:00:00 -0700
-Subject: [PATCH] openai-strict-responses-wire: sanitize Responses requests and
- test strict mode
+Date: Fri, 3 Oct 2026 12:10:00 +0800
+Subject: [PATCH] openai-strict-responses-wire: port Responses sanitization to 1.0.45
 
 Gork-Patch-Id: openai-strict-responses-wire
 Gork-Invariant: strict-openai-responses-wire
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-sampler/src/client.rs | 147 ++++++++++++++++--
- 1 file changed, 137 insertions(+), 10 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
-index 6ab5c7a548acb7ab37d915b3cddcc5ce1a10ca26..28aca2876232e057c18c8e9492d662fcdec417fb 100644
 --- a/crates/codegen/xai-grok-sampler/src/client.rs
 +++ b/crates/codegen/xai-grok-sampler/src/client.rs
-@@ -1415,12 +1415,17 @@ impl SamplingClient {
-         // async-openai's ReasoningTextContent struct omits the `type` discriminator that the Responses API requires on input
-         // Patch it in after serializing
-         xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
+@@ -1316,10 +1316,13 @@
+         })?;
+         splice_extra_tool_entries(&mut request_body, extra_tool_entries);
+         append_response_includes(&mut request_body, &self.defaults.extra_response_includes);
+-        // async-openai's ReasoningTextContent struct omits the `type` discriminator that the Responses API requires on input
+-        // Patch it in after serializing
+-        xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
+-        self.prepare_bearer().await;
++        // async-openai's ReasoningTextContent struct omits the `type` discriminator that the Responses API requires on input
++        // Patch it in after serializing
++        xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
 +        if self.defaults.strict_openai {
 +            sanitize_strict_response_body(&mut request_body);
 +        }
-         self.prepare_bearer().await;
++        self.prepare_bearer().await;
          let SentRequest {
              builder,
              sent_bearer,
+@@ -1324,9 +1327,9 @@
+             builder,
+             sent_bearer,
          } = self.post(self.endpoint("responses"));
--        let http_request = grok_headers.apply(builder).json(&request_body);
-+        let http_request = self
-+            .apply_grok_headers(grok_headers, builder)
-+            .json(&request_body);
+-        let built_request = self
+-            .build_json_request(grok_headers.apply(builder), &request_body)
+-            .await?;
++        let built_request = self
++            .build_json_request(self.apply_grok_headers(grok_headers, builder), &request_body)
++            .await?;
+         let response = self.send(built_request).await?;
  
-         let response = http_request.send().await.map_err(|e| {
-             tracing::debug!("HTTP request failed: {}", e);
-@@ -1553,26 +1558,34 @@ impl SamplingClient {
+         let status = response.status();
+@@ -1455,20 +1458,28 @@
+             tracing::error!("Failed to serialize responses request: {}", e);
              SamplingError::Serialization(e)
          })?;
-         // Inject xAI-specific fields not in async-openai's CreateResponse type.
--        if self.defaults.stream_tool_calls {
-+        if self.defaults.stream_tool_calls && !self.defaults.strict_openai {
-             request_body["stream_tool_calls"] = serde_json::json!(true);
-         }
-         splice_extra_tool_entries(&mut request_body, extra_tool_entries);
-         append_response_includes(&mut request_body, &self.defaults.extra_response_includes);
-         xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
+-        // Inject xAI-specific fields not in async-openai's CreateResponse type.
+-        if self.defaults.stream_tool_calls
+-            && let Some(obj) = request_body.as_object_mut()
+-        {
+-            obj.insert("stream_tool_calls".to_owned(), serde_json::json!(true));
+-        }
+-        splice_extra_tool_entries(&mut request_body, extra_tool_entries);
+-        append_response_includes(&mut request_body, &self.defaults.extra_response_includes);
+-        xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
 -        // Fresh per attempt so signals never leak across retries; `None` (check disabled) sends no header and does no peek work per event
 -        let doom_loop = self
 -            .defaults
 -            .doom_loop_recovery
 -            .map(crate::doom_loop::DoomLoopSignalCollector::new);
++        // Inject xAI-specific fields not in async-openai's CreateResponse type.
++        if self.defaults.stream_tool_calls
++            && !self.defaults.strict_openai
++            && let Some(obj) = request_body.as_object_mut()
++        {
++            obj.insert("stream_tool_calls".to_owned(), serde_json::json!(true));
++        }
++        splice_extra_tool_entries(&mut request_body, extra_tool_entries);
++        append_response_includes(&mut request_body, &self.defaults.extra_response_includes);
++        xai_grok_sampling_types::patch_reasoning_text_types(&mut request_body);
 +        if self.defaults.strict_openai {
 +            sanitize_strict_response_body(&mut request_body);
 +        }
-+        // Fresh per attempt so signals never leak across retries; strict mode sends no Grok-only check headers.
++        // Fresh per attempt so signals never leak across retries. Strict mode
++        // sends no Grok-only check headers or doom-loop wire extensions.
 +        let doom_loop = if self.defaults.strict_openai {
 +            None
 +        } else {
@@ -64,24 +85,35 @@ index 6ab5c7a548acb7ab37d915b3cddcc5ce1a10ca26..28aca2876232e057c18c8e9492d662fc
          self.prepare_bearer().await;
          let SentRequest {
              builder,
+@@ -1474,10 +1485,12 @@
+             builder,
              sent_bearer,
          } = self.post(self.endpoint("responses"));
 -        let mut http_request = grok_headers
 -            .apply(builder)
+-            .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
+-        if let Some(policy) = self.defaults.doom_loop_recovery {
 +        let mut http_request = self
 +            .apply_grok_headers(grok_headers, builder)
-             .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
--        if let Some(policy) = self.defaults.doom_loop_recovery {
++            .header(ACCEPT, HeaderValue::from_static("text/event-stream"));
 +        if !self.defaults.strict_openai
 +            && let Some(policy) = self.defaults.doom_loop_recovery
 +        {
              http_request = http_request
                  .header(DOOM_LOOP_CHECK_HEADER, policy.window_tokens.to_string())
                  .header(
-@@ -2351,6 +2364,120 @@ mod tests {
-     use xai_grok_sampling_types::ApiErrorCode;
-     use xai_grok_sampling_types::types::ChatRequestMessage;
- 
+@@ -2253,11 +2266,128 @@
+     use indexmap::IndexMap;
+     use tokio::net::TcpListener;
+     use tokio::sync::oneshot;
+-    use xai_grok_sampling_types::ApiErrorCode;
+-    use xai_grok_sampling_types::types::ChatRequestMessage;
+-
+-    #[test]
+-    fn splice_extra_tool_entries_extends_existing_tools_array() {
++    use xai_grok_sampling_types::ApiErrorCode;
++    use xai_grok_sampling_types::types::ChatRequestMessage;
++
 +    fn strict_config(api_backend: ApiBackend) -> SamplerConfig {
 +        let mut config = minimal_config();
 +        config.api_backend = api_backend;
@@ -156,7 +188,10 @@ index 6ab5c7a548acb7ab37d915b3cddcc5ce1a10ca26..28aca2876232e057c18c8e9492d662fc
 +        });
 +        sanitize_strict_response_body(&mut body);
 +        assert!(body.get("stream_tool_calls").is_none());
-+        assert_eq!(body["include"], serde_json::json!(["reasoning.encrypted_content"]));
++        assert_eq!(
++            body["include"],
++            serde_json::json!(["reasoning.encrypted_content"])
++        );
 +        assert_eq!(body["tools"].as_array().unwrap().len(), 2);
 +        assert!(
 +            body["tools"]
@@ -196,25 +231,12 @@ index 6ab5c7a548acb7ab37d915b3cddcc5ce1a10ca26..28aca2876232e057c18c8e9492d662fc
 +        assert!(err.to_string().contains("Anthropic Messages API"));
 +    }
 +
-     #[test]
-     fn splice_extra_tool_entries_extends_existing_tools_array() {
++    #[test]
++    fn splice_extra_tool_entries_extends_existing_tools_array() {
          let mut body = serde_json::json!({ "tools": [{ "type": "function" }] });
+         splice_extra_tool_entries(&mut body, vec![serde_json::json!({ "type": "web_search" })]);
+         assert_eq!(
 
-base-commit: 37949780c144e37df692e3d669051a21fec24f20
-prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
-prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
-prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
-prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
-prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
-prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
-prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
-prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
-prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
-prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
-prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
-prerequisite-patch-id: a2df50b861b2ab43015c282c11cd62129b00da1f
-prerequisite-patch-id: bfb89cbf0c71585343cce591d9cad67c89e91bb5
-prerequisite-patch-id: b80a88a17a43f871df032e2206fb552f82580457
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
 -- 
-2.53.0.windows.2
-
+2.55.0
