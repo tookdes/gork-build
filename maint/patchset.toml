@@ -126,8 +126,11 @@ file = "0081-package-publishing.patch"
 critical = false
 contracts = []
 
+# Mandatory compatibility layer: armv7/musl/ancient-kernel support must survive
+# every upstream sync. Treat a conflict as a release blocker, not a skippable
+# branding tail.
 [[patch]]
 id = "armv7-portability"
 file = "0082-armv7-portability.patch"
-critical = false
+critical = true
 contracts = []
