@@ -1,24 +1,25 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Fri, 3 Oct 2026 11:20:00 +0800
-Subject: [PATCH] research-upload-hard-off: port resolver gates to 1.0.45
+Date: Fri, 3 Oct 2026 14:50:00 +0800
+Subject: [PATCH] research-upload-hard-off: port privacy resolvers to 1.0.45
 
-Upstream 1.0.45 introduced testable Distribution capability gates. Map
-Gork's privacy invariant onto that mechanism, keep trace/product telemetry
-hard-off regardless of env/config/requirements/remote settings, default repo
-change packaging off, and keep feedback available only by explicit local env
-opt-in.
+Keep research/product telemetry and trace upload hard-off in shipped Gork
+builds while preserving upstream Distribution-specific helper semantics for
+its unit tests. Feedback remains disabled unless the user explicitly opts in
+through GROK_FEEDBACK_ENABLED, and whole-repo change packaging defaults off.
 
 Gork-Patch-Id: research-upload-hard-off
 Gork-Invariant: research-upload-unreachable
 Gork-Risk: critical
 ---
+ crates/codegen/xai-grok-shell/Cargo.toml       |  2 +-
+ crates/codegen/xai-grok-shell/src/agent/config.rs | 39 ++++++++++++++++++----
+ 2 files changed, 34 insertions(+), 7 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-shell/Cargo.toml b/crates/codegen/xai-grok-shell/Cargo.toml
 --- a/crates/codegen/xai-grok-shell/Cargo.toml
 +++ b/crates/codegen/xai-grok-shell/Cargo.toml
-@@ -37,7 +37,7 @@
- anyhow = { workspace = true }
+@@ -37,7 +37,7 @@ anyhow = { workspace = true }
  xai-grok-announcements = { workspace = true }
  xai-prompt-queue = { workspace = true }
 -xai-grok-version = { workspace = true }
@@ -29,7 +30,7 @@ diff --git a/crates/codegen/xai-grok-shell/Cargo.toml b/crates/codegen/xai-grok-
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -1108,7 +1108,8 @@
+@@ -1110,7 +1110,8 @@ impl Default for RepoChangesDedupConfig {
  impl Default for RepoChangesDedupConfig {
      fn default() -> Self {
          Self {
@@ -39,77 +40,13 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
              include_inline_fallback: false,
              max_inline_bytes: 0,
              dedup_untracked: true,
-@@ -1837,71 +1838,95 @@
+@@ -1839,8 +1840,20 @@ impl Config {
      pub fn is_trace_upload_enabled(&self) -> bool {
          self.resolve_trace_upload().value
      }
--    pub fn is_feedback_enabled(&self) -> bool {
--        self.is_feature_enabled(Feature::Feedback)
--    }
--    pub(crate) fn is_session_recap_enabled(&self) -> bool {
--        self.is_feature_enabled(Feature::SessionRecap)
--    }
--    pub(crate) fn is_turn_summary_enabled(&self) -> bool {
--        self.is_feature_enabled(Feature::TurnSummary)
--    }
--    pub(crate) fn is_voice_mode_enabled(&self) -> bool {
--        self.is_feature_enabled(Feature::VoiceMode)
--    }
--    pub(crate) fn is_two_pass_compaction_enabled(&self) -> bool {
--        self.is_feature_enabled(Feature::TwoPassCompaction)
--    }
--    pub(crate) fn resolve_telemetry_mode(&self) -> Resolved<TelemetryMode> {
--        if !Distribution::current().allows(Capability::Telemetry) {
--            return Resolved::new(TelemetryMode::Disabled, ConfigSource::Default);
--        }
--        if let Some(mode) = self.requirements.telemetry.pinned() {
--            return Resolved::new(mode, ConfigSource::Requirement);
--        }
--        if env_bool("DISABLE_TELEMETRY") == Some(true) {
--            return Resolved::new(TelemetryMode::Disabled, ConfigSource::Env);
--        }
--        if let Some(mode) = env_telemetry_mode("GROK_TELEMETRY_ENABLED") {
--            return Resolved::new(mode, ConfigSource::Env);
--        }
--        if let Some(mode) = self.features.telemetry {
--            return Resolved::new(mode, ConfigSource::Config);
--        }
--        if let Some(rs) = self.remote_settings.as_ref() {
--            if let Some(mode_str) = rs.telemetry_mode.as_deref()
--                && let Some(mode) = TelemetryMode::parse(mode_str)
--            {
--                return Resolved::new(mode, ConfigSource::Remote);
--            }
--            if let Some(val) = rs.telemetry_enabled {
--                return Resolved::new(TelemetryMode::from(val), ConfigSource::Remote);
--            }
--        }
--        Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
--    }
--    pub(crate) fn resolve_trace_upload(&self) -> Resolved<bool> {
--        self.resolve_trace_upload_as(Distribution::current())
--    }
--    fn resolve_trace_upload_as(&self, distribution: Distribution) -> Resolved<bool> {
--        if !distribution.allows(Capability::Telemetry) {
--            return Resolved::new(false, ConfigSource::Default);
--        }
--        let mode = self.resolve_telemetry_mode();
--        let ff = if mode.value.is_disabled() {
--            None
--        } else {
--            self.remote_settings
--                .as_ref()
--                .and_then(|s| s.trace_upload_enabled)
--        };
--        BoolFlag::env("GROK_TELEMETRY_TRACE_UPLOAD")
--            .requirement(self.requirements.trace_upload.pinned())
--            .config(self.telemetry.trace_upload)
--            .feature_flag(ff)
--            .default(mode.value.is_enabled())
--            .resolve()
--    }
-+    /// User-facing feedback is off in a privacy build unless the user makes a
-+    /// local environment opt-in. Config and remote settings cannot turn it on.
++    /// Privacy builds keep the vendor feedback funnel off unless the user makes
++    /// an explicit local environment opt-in. Config and remote settings cannot
++    /// enable it.
 +    pub fn resolve_feedback(&self) -> Resolved<bool> {
 +        if xai_grok_version::research_data_collection_forbidden() {
 +            if let Some(enabled) = env_bool("GROK_FEEDBACK_ENABLED") {
@@ -119,24 +56,18 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
 +        }
 +        self.feature(Feature::Feedback)
 +    }
-+    pub fn is_feedback_enabled(&self) -> bool {
+     pub fn is_feedback_enabled(&self) -> bool {
+-        self.is_feature_enabled(Feature::Feedback)
 +        self.resolve_feedback().value
-+    }
-+    pub(crate) fn is_session_recap_enabled(&self) -> bool {
-+        self.is_feature_enabled(Feature::SessionRecap)
-+    }
-+    pub(crate) fn is_turn_summary_enabled(&self) -> bool {
-+        self.is_feature_enabled(Feature::TurnSummary)
-+    }
-+    pub(crate) fn is_voice_mode_enabled(&self) -> bool {
-+        self.is_feature_enabled(Feature::VoiceMode)
-+    }
-+    pub(crate) fn is_two_pass_compaction_enabled(&self) -> bool {
-+        self.is_feature_enabled(Feature::TwoPassCompaction)
-+    }
-+    /// Map the Gork privacy invariant onto upstream's distribution capability
-+    /// gate without changing the stock semantics used by explicit test
-+    /// distributions.
+     }
+     pub(crate) fn is_session_recap_enabled(&self) -> bool {
+         self.is_feature_enabled(Feature::SessionRecap)
+@@ -1855,8 +1868,19 @@ impl Config {
+     pub(crate) fn is_two_pass_compaction_enabled(&self) -> bool {
+         self.is_feature_enabled(Feature::TwoPassCompaction)
+     }
+-    pub(crate) fn resolve_telemetry_mode(&self) -> Resolved<TelemetryMode> {
+-        if !Distribution::current().allows(Capability::Telemetry) {
 +    fn effective_distribution() -> Distribution {
 +        if xai_grok_version::research_data_collection_forbidden() {
 +            Distribution::withholding(&[Capability::Telemetry])
@@ -149,58 +80,27 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
 +    }
 +    fn resolve_telemetry_mode_as(&self, distribution: Distribution) -> Resolved<TelemetryMode> {
 +        if !distribution.allows(Capability::Telemetry) {
-+            return Resolved::new(TelemetryMode::Disabled, ConfigSource::Default);
-+        }
-+        if let Some(mode) = self.requirements.telemetry.pinned() {
-+            return Resolved::new(mode, ConfigSource::Requirement);
-+        }
-+        if env_bool("DISABLE_TELEMETRY") == Some(true) {
-+            return Resolved::new(TelemetryMode::Disabled, ConfigSource::Env);
-+        }
-+        if let Some(mode) = env_telemetry_mode("GROK_TELEMETRY_ENABLED") {
-+            return Resolved::new(mode, ConfigSource::Env);
-+        }
-+        if let Some(mode) = self.features.telemetry {
-+            return Resolved::new(mode, ConfigSource::Config);
-+        }
-+        if let Some(rs) = self.remote_settings.as_ref() {
-+            if let Some(mode_str) = rs.telemetry_mode.as_deref()
-+                && let Some(mode) = TelemetryMode::parse(mode_str)
-+            {
-+                return Resolved::new(mode, ConfigSource::Remote);
-+            }
-+            if let Some(val) = rs.telemetry_enabled {
-+                return Resolved::new(TelemetryMode::from(val), ConfigSource::Remote);
-+            }
-+        }
-+        Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
-+    }
+             return Resolved::new(TelemetryMode::Disabled, ConfigSource::Default);
+         }
+         if let Some(mode) = self.requirements.telemetry.pinned() {
+@@ -1884,15 +1908,15 @@ impl Config {
+         }
+         Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
+     }
+-    pub(crate) fn resolve_trace_upload(&self) -> Resolved<bool> {
+-        self.resolve_trace_upload_as(Distribution::current())
 +    pub fn resolve_trace_upload(&self) -> Resolved<bool> {
 +        self.resolve_trace_upload_as(Self::effective_distribution())
-+    }
-+    fn resolve_trace_upload_as(&self, distribution: Distribution) -> Resolved<bool> {
-+        if !distribution.allows(Capability::Telemetry) {
-+            return Resolved::new(false, ConfigSource::Default);
-+        }
+     }
+     fn resolve_trace_upload_as(&self, distribution: Distribution) -> Resolved<bool> {
+         if !distribution.allows(Capability::Telemetry) {
+             return Resolved::new(false, ConfigSource::Default);
+         }
+-        let mode = self.resolve_telemetry_mode();
 +        let mode = self.resolve_telemetry_mode_as(distribution);
-+        let ff = if mode.value.is_disabled() {
-+            None
-+        } else {
-+            self.remote_settings
-+                .as_ref()
-+                .and_then(|s| s.trace_upload_enabled)
-+        };
-+        BoolFlag::env("GROK_TELEMETRY_TRACE_UPLOAD")
-+            .requirement(self.requirements.trace_upload.pinned())
-+            .config(self.telemetry.trace_upload)
-+            .feature_flag(ff)
-+            .default(mode.value.is_enabled())
-+            .resolve()
-+    }
-     /// Resolve jemalloc heap-profile config from stored remote settings and the current gates.
-     pub fn resolve_jemalloc_heap_profile(
-         &self,
-
+         let ff = if mode.value.is_disabled() {
+             None
+         } else {
 base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
 -- 
 2.55.0
