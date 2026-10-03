@@ -29,3 +29,8 @@ advisory = "RUSTSEC-2026-0257"
 package = "h2"
 precise = "0.4.16"
 advisory = "RUSTSEC-2026-0258"
+
+[[floor]]
+package = "rustls"
+precise = "0.23.45"
+advisory = "RUSTSEC-2026-0285"
