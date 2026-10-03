@@ -370,7 +370,7 @@ diff --git a/crates/codegen/xai-mixpanel/src/lib.rs b/crates/codegen/xai-mixpane
 +        {
 +            // Gork privacy invariant: product analytics never leave the host.
 +            let _ = (&self.token, &self.client, event, properties);
-+            return Ok(());
++            Ok(())
 +        }
 +
 +        #[cfg(test)]
@@ -398,7 +398,7 @@ diff --git a/crates/codegen/xai-mixpanel/src/lib.rs b/crates/codegen/xai-mixpane
 +        {
 +            // Gork privacy invariant: profile updates are disabled too.
 +            let _ = (&self.token, &self.client, distinct_id, set);
-+            return Ok(());
++            Ok(())
 +        }
 +
 +        #[cfg(test)]
