@@ -142,3 +142,10 @@ id = "armv7-portability"
 file = "0082-armv7-portability.patch"
 critical = true
 contracts = []
+
+# Mechanical normalization after all functional portability/privacy ports.
+[[patch]]
+id = "rustfmt-sync"
+file = "0083-rustfmt-sync.patch"
+critical = true
+contracts = []
