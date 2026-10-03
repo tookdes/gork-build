@@ -1,0 +1,201 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Fri, 3 Oct 2026 15:10:00 +0800
+Subject: [PATCH] rustfmt-sync: normalize 1.0.45 portability and privacy ports
+
+Normalize the forward-ported privacy, strict OpenAI, API-key, updater and
+armv7 compatibility changes with upstream 1.0.45 rustfmt.
+
+Gork-Patch-Id: rustfmt-sync
+Gork-Invariant: rustfmt-clean
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+--- a/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
++++ b/crates/codegen/xai-grok-pager/src/app/acp_handler/session_notification.rs
+@@ -1889,10 +1889,7 @@
+                 session.credit_limit_blocked = true;
+             } else if is_free_usage {
+                 session.free_usage_blocked = true;
+-            } else if !*rate_limited
+-                && !is_api_key_auth
+-                && is_reauthable_failure(None, reason)
+-            {
++            } else if !*rate_limited && !is_api_key_auth && is_reauthable_failure(None, reason) {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+             } else if *rate_limited {
+@@ -1922,8 +1919,7 @@
+             is_credit_limit = super::super::dispatch::is_credit_limit_error(None, message);
+             if is_credit_limit {
+                 session.credit_limit_blocked = true;
+-            } else if !is_api_key_auth
+-                && is_reauthable_failure(Some(error_type.as_str()), message)
++            } else if !is_api_key_auth && is_reauthable_failure(Some(error_type.as_str()), message)
+             {
+                 is_reauth = true;
+                 scrollback.push_block(RenderBlock::session_event(SessionEvent::ReAuthRequired));
+diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
+--- a/crates/codegen/xai-grok-sampler/src/client.rs
++++ b/crates/codegen/xai-grok-sampler/src/client.rs
+@@ -297,7 +297,9 @@
+     for mut message in std::mem::take(messages) {
+         let is_tool = message.get("role").and_then(serde_json::Value::as_str) == Some("tool");
+         if !is_tool && !pending_images.is_empty() {
+-            rewritten.push(strict_tool_image_message(std::mem::take(&mut pending_images)));
++            rewritten.push(strict_tool_image_message(std::mem::take(
++                &mut pending_images,
++            )));
+         }
+         if let Some(message_object) = message.as_object_mut() {
+             message_object.remove("model_id");
+@@ -376,9 +378,7 @@
+ 
+ fn is_grok_only_header(name: &str) -> bool {
+     let lower = name.to_ascii_lowercase();
+-    lower.starts_with("x-grok-")
+-        || lower == "x-compactions-remaining"
+-        || lower == "x-compaction-at"
++    lower.starts_with("x-grok-") || lower == "x-compactions-remaining" || lower == "x-compaction-at"
+ }
+ 
+ /// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
+@@ -1485,7 +1485,10 @@
+             sent_bearer,
+         } = self.post(self.endpoint("responses"));
+         let built_request = self
+-            .build_json_request(self.apply_grok_headers(grok_headers, builder), &request_body)
++            .build_json_request(
++                self.apply_grok_headers(grok_headers, builder),
++                &request_body,
++            )
+             .await?;
+         let response = self.send(built_request).await?;
+ 
+@@ -2472,7 +2475,11 @@
+         assert_eq!(body["max_completion_tokens"], serde_json::json!(123));
+         assert!(body.get("search_parameters").is_none());
+         let messages = body["messages"].as_array().unwrap();
+-        assert!(messages.iter().all(|message| message.get("model_id").is_none()));
++        assert!(
++            messages
++                .iter()
++                .all(|message| message.get("model_id").is_none())
++        );
+         assert!(
+             messages
+                 .iter()
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/sampler_turn.rs
+@@ -1071,9 +1071,10 @@
+     /// The selected ACP method, not stale material in auth.json, decides
+     /// whether interactive auth recovery is meaningful.
+     fn using_api_key_auth(&self) -> bool {
+-        self.auth_method_id.load().as_deref().is_some_and(|id| {
+-            crate::agent::auth_method::AuthMethodKind::from_id(id).is_api_key()
+-        })
++        self.auth_method_id
++            .load()
++            .as_deref()
++            .is_some_and(|id| crate::agent::auth_method::AuthMethodKind::from_id(id).is_api_key())
+     }
+ 
+     /// Terminal failure when consecutive Length salvages exceed the cap: executing more calls is not converging, so surface the pre-salvage `MaxTokensTruncation` failure.
+@@ -1641,13 +1642,11 @@
+             error.kind.as_ref()
+         };
+         let (error_type, detailed_message) = match self.auth_manager.as_ref() {
+-            Some(auth_manager) if error_type == "auth" && !using_api_key => {
+-                self.apply_auth_remedy(
+-                    &auth_manager.auth_remedy(),
+-                    detailed_message,
+-                    error.status_code,
+-                )
+-            }
++            Some(auth_manager) if error_type == "auth" && !using_api_key => self.apply_auth_remedy(
++                &auth_manager.auth_remedy(),
++                detailed_message,
++                error.status_code,
++            ),
+             _ => (error_type, detailed_message),
+         };
+         self.log_terminal_failure(error_type, error.status_code, &detailed_message);
+diff --git a/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs b/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
+--- a/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
++++ b/crates/codegen/xai-grok-shell-base/src/cpu_profile.rs
+@@ -674,12 +674,12 @@
+         let builder = pprof::ProfilerGuardBuilder::default().frequency(frequency_hz);
+ 
+         let guard = builder.build().map_err(|err: pprof::Error| {
+-                ControlError::with_details(
+-                    ControlErrorCode::InternalError,
+-                    "failed to start CPU profiler",
+-                    serde_json::json!({ "error": err.to_string(), "frequency_hz": frequency_hz }),
+-                )
+-            })?;
++            ControlError::with_details(
++                ControlErrorCode::InternalError,
++                "failed to start CPU profiler",
++                serde_json::json!({ "error": err.to_string(), "frequency_hz": frequency_hz }),
++            )
++        })?;
+ 
+         Ok(Box::new(PprofProfilerEngine {
+             guard,
+diff --git a/crates/codegen/xai-grok-update/src/auto_update.rs b/crates/codegen/xai-grok-update/src/auto_update.rs
+--- a/crates/codegen/xai-grok-update/src/auto_update.rs
++++ b/crates/codegen/xai-grok-update/src/auto_update.rs
+@@ -2864,7 +2864,6 @@
+     }
+ }
+ 
+-
+ #[cfg(test)]
+ mod privacy_tests {
+     use super::*;
+@@ -2914,7 +2913,9 @@
+ 
+     #[tokio::test]
+     async fn ensure_latest_on_disk_no_install_under_privacy() {
+-        let out = ensure_latest_on_disk(&privacy_update_config()).await.unwrap();
++        let out = ensure_latest_on_disk(&privacy_update_config())
++            .await
++            .unwrap();
+         assert!(out.installed.is_none());
+         assert!(!out.relaunch_needed);
+     }
+@@ -2927,15 +2928,9 @@
+     #[tokio::test]
+     async fn explicit_run_update_refuses_under_privacy() {
+         let mut cfg = privacy_update_config();
+-        let err = run_update(
+-            false,
+-            None,
+-            None,
+-            &mut cfg,
+-            CliUpdateTrigger::UserCommand,
+-        )
+-        .await
+-        .expect_err("explicit update must be blocked before any vendor request");
++        let err = run_update(false, None, None, &mut cfg, CliUpdateTrigger::UserCommand)
++            .await
++            .expect_err("explicit update must be blocked before any vendor request");
+         assert!(format!("{err:#}").contains("never installs from vendor"));
+     }
+ }
+diff --git a/crates/codegen/xai-grok-version/src/lib.rs b/crates/codegen/xai-grok-version/src/lib.rs
+--- a/crates/codegen/xai-grok-version/src/lib.rs
++++ b/crates/codegen/xai-grok-version/src/lib.rs
+@@ -41,7 +41,6 @@
+     PRIVACY_BUILD
+ }
+ 
+-
+ pub const TEST_VERSION_ENV: &str = "GROK_TEST_VERSION";
+ 
+ pub const VERSION: &str = match option_env!("GROK_VERSION") {
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0
