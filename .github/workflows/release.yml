@@ -196,6 +196,15 @@ jobs:
           shared-key: release-${{ matrix.platform }}
           cache-targets: "true"
 
+      - name: Prepare bundled ripgrep (armv7 musl)
+        if: matrix.zig == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG_PATH="$(bash maint/scripts/prepare_armv7_ripgrep.sh)"
+          echo "GROK_TOOLS_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+          echo "GROK_SHELL_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+
       - name: Fetch and patch vendor crates (armv7 musl)
         if: matrix.zig == true
         shell: bash
