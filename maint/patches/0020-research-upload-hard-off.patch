@@ -19,7 +19,7 @@ Gork-Risk: critical
 diff --git a/crates/codegen/xai-grok-shell/Cargo.toml b/crates/codegen/xai-grok-shell/Cargo.toml
 --- a/crates/codegen/xai-grok-shell/Cargo.toml
 +++ b/crates/codegen/xai-grok-shell/Cargo.toml
-@@ -37,7 +37,7 @@ anyhow = { workspace = true }
+@@ -38,6 +38,6 @@
  xai-grok-announcements = { workspace = true }
  xai-prompt-queue = { workspace = true }
 -xai-grok-version = { workspace = true }
@@ -83,7 +83,7 @@ diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/
              return Resolved::new(TelemetryMode::Disabled, ConfigSource::Default);
          }
          if let Some(mode) = self.requirements.telemetry.pinned() {
-@@ -1884,15 +1908,15 @@ impl Config {
+@@ -1884,12 +1908,12 @@ impl Config {
          }
          Resolved::new(TelemetryMode::Disabled, ConfigSource::Default)
      }
