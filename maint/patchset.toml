@@ -14,6 +14,14 @@ file = "0010-telemetry-hard-off.patch"
 critical = true
 contracts = ["mixpanel-lib", "telemetry-lib", "telemetry-chokepoints", "telemetry-resolvers"]
 
+# Upstream 1.0.45 refactored Mixpanel transport; keep the production send
+# chokepoints hard-off while retaining upstream HTTP behavior only in unit tests.
+[[patch]]
+id = "mixpanel-hard-off"
+file = "0011-mixpanel-hard-off.patch"
+critical = true
+contracts = ["mixpanel-lib"]
+
 [[patch]]
 id = "research-upload-hard-off"
 file = "0020-research-upload-hard-off.patch"
