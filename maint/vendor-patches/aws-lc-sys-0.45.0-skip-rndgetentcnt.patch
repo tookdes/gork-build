@@ -1,6 +1,6 @@
 --- a/aws-lc/crypto/rand_extra/urandom.c
 +++ b/aws-lc/crypto/rand_extra/urandom.c
-@@ -344,35 +344,12 @@
+@@ -344,35 +344,9 @@
  static void ensure_dev_urandom_is_initialized(void) {
 -
 -  // On platforms where urandom doesn't block at startup, we ensure that the
