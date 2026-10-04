@@ -44,7 +44,7 @@ index b2e1ba29b35b72dcf7dff2a2a85ca5207670289a..66c474508cd709e7172bd43a4359aba3
      match mode {
          OtelProviderMode::Server => build_server_provider(client, config, session_metrics_gate),
          OtelProviderMode::Local => SdkTracerProvider::builder().build(),
-@@ -357,3 +362,61 @@ pub fn shutdown_provider() {
+@@ -357,3 +362,66 @@ pub fn shutdown_provider() {
          started.elapsed().as_millis()
      );
  }
@@ -74,6 +74,10 @@ index b2e1ba29b35b72dcf7dff2a2a85ca5207670289a..66c474508cd709e7172bd43a4359aba3
 +        }
 +    }
 +
++    /// Identity stand-in for production `otel_layer::redact::redact_batch`.
++    /// The privacy chokepoint returns before any batch is exported.
++    fn identity_redactor(_batch: &mut [opentelemetry_sdk::trace::SpanData]) {}
++
 +    #[test]
 +    fn server_exporter_is_never_constructed_under_privacy() {
 +        assert!(xai_grok_version::research_data_collection_forbidden());
@@ -100,6 +104,7 @@ index b2e1ba29b35b72dcf7dff2a2a85ca5207670289a..66c474508cd709e7172bd43a4359aba3
 +                },
 +                OtelProviderMode::Server,
 +                Arc::new(|| true),
++                Arc::new(identity_redactor),
 +            );
 +            provider.force_flush().unwrap();
 +            provider.shutdown().unwrap();
