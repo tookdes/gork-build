@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev cmake libclang-dev build-essential
+            pkg-config libssl-dev cmake libclang-dev build-essential binutils
 
       - name: Install protoc 29.3
         shell: bash
@@ -84,6 +84,10 @@ jobs:
             runner: ubuntu-latest
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
+          - platform: linux-armv7
+            runner: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            zig: true
           - platform: darwin-arm64
             runner: macos-latest
           - platform: darwin-x64
@@ -111,7 +115,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev cmake libclang-dev build-essential
+            pkg-config libssl-dev cmake libclang-dev build-essential binutils
 
       - name: Install system deps (Windows)
         if: runner.os == 'Windows'
@@ -151,6 +155,16 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
+      - name: Install Zig (armv7 musl)
+        if: matrix.zig == true
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.1
+
+      - name: Install cargo-zigbuild (armv7 musl)
+        if: matrix.zig == true
+        run: cargo install cargo-zigbuild --version 0.23.4 --locked
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -158,18 +172,55 @@ jobs:
           workspaces: .work/src
           cache-targets: "true"
 
+      - name: Prepare bundled ripgrep (armv7 musl)
+        if: matrix.zig == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG_PATH="$(bash maint/scripts/prepare_armv7_ripgrep.sh)"
+          echo "GROK_TOOLS_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+          echo "GROK_SHELL_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+
+      - name: Fetch and patch vendor crates (armv7 musl)
+        if: matrix.zig == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --manifest-path .work/src/Cargo.toml --target "${{ matrix.target }}"
+          bash maint/scripts/apply_vendor_patches.sh
+
       - name: Build gork
         shell: bash
         env:
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-arg=/DEBUG:NONE' || '' }}
         run: |
           set -euo pipefail
-          if [[ -n "${{ matrix.target }}" ]]; then
+          if [[ "${{ matrix.zig || false }}" == "true" ]]; then
+            cargo zigbuild -p xai-grok-pager-bin --release --target "${{ matrix.target }}" \
+              --manifest-path .work/src/Cargo.toml
+          elif [[ -n "${{ matrix.target }}" ]]; then
             cargo build -p xai-grok-pager-bin --release --target "${{ matrix.target }}" \
               --manifest-path .work/src/Cargo.toml
           else
             cargo build -p xai-grok-pager-bin --release \
               --manifest-path .work/src/Cargo.toml
+          fi
+
+      - name: Verify armv7 static musl binary
+        if: matrix.platform == 'linux-armv7'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=".work/src/target/${{ matrix.target }}/release/gork"
+          file "$BIN"
+          readelf -h "$BIN" | grep -Eq 'Machine:[[:space:]]+ARM'
+          if readelf -l "$BIN" | grep -q 'Requesting program interpreter'; then
+            echo "armv7 artifact is dynamically linked (PT_INTERP present)" >&2
+            exit 1
+          fi
+          if readelf -d "$BIN" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "armv7 artifact has dynamic NEEDED entries" >&2
+            exit 1
           fi
 
       - name: Stage binary

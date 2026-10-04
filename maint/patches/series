@@ -1,6 +1,7 @@
 # Gork privacy patch series (apply order)
 0001-privacy-core.patch
 0010-telemetry-hard-off.patch
+0011-mixpanel-hard-off.patch
 0020-research-upload-hard-off.patch
 0030-retention-opt-out.patch
 0040-vendor-updater-hard-off.patch
@@ -18,3 +19,4 @@
 0080-product-identity.patch
 0081-package-publishing.patch
 0082-armv7-portability.patch
+0083-rustfmt-sync.patch

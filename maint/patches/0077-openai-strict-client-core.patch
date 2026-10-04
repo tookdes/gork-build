@@ -1,43 +1,40 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Mon, 31 Aug 2026 10:00:00 -0700
-Subject: [PATCH] openai-strict-client-core: gate Grok wire extensions
+Date: Fri, 3 Oct 2026 11:55:00 +0800
+Subject: [PATCH] openai-strict-client-core: port wire gates to 1.0.45
 
 Gork-Patch-Id: openai-strict-client-core
 Gork-Invariant: strict-openai-header-gate
 Gork-Risk: critical
 ---
- crates/codegen/xai-grok-sampler/src/client.rs | 222 +++++++++++++++---
- 1 file changed, 189 insertions(+), 33 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-sampler/src/client.rs b/crates/codegen/xai-grok-sampler/src/client.rs
-index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c14c9956cf 100644
 --- a/crates/codegen/xai-grok-sampler/src/client.rs
 +++ b/crates/codegen/xai-grok-sampler/src/client.rs
-@@ -34,7 +34,7 @@ use xai_grok_sampling_types::{
+@@ -35,7 +35,9 @@
      is_check_event, messages, rs,
  };
  
--use crate::config::{AuthScheme, OriginClientInfo, SamplerConfig};
-+use crate::config::{AuthScheme, OPENAI_COMPAT_MARKER, OriginClientInfo, SamplerConfig};
+-use crate::config::{AuthScheme, OriginClientInfo, RequestCompression, SamplerConfig};
++use crate::config::{
++    AuthScheme, OPENAI_COMPAT_MARKER, OriginClientInfo, RequestCompression, SamplerConfig,
++};
  use crate::events::SamplingErrorInfo;
+ use crate::request_compression::{compress_body, should_compress};
  use crate::span_timing::{ERROR, STATUS_CODE, SUCCESS, StreamSpanTiming};
- use crate::stream_classify::{chat_chunk_class, message_event_class, responses_event_class};
-@@ -269,6 +269,124 @@ fn append_response_includes(body: &mut serde_json::Value, extra_includes: &[Stri
+@@ -271,9 +273,115 @@
+             include.push(serde_json::Value::String(value.clone()));
+         }
      }
- }
- 
-+/// Rewrite Grok's extended Chat Completions body into a strict OpenAI shape.
-+///
-+/// Tool-result images cannot remain on a `role=tool` message for strict
-+/// Chat Completions. Keep all consecutive tool messages contiguous and move
-+/// their image blocks into one following user multimodal message. This avoids
-+/// breaking parallel tool-call ordering while preserving image visibility.
+-}
+-
+-/// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
++}
++
 +fn sanitize_strict_chat_body(body: &mut serde_json::Value) {
 +    let Some(object) = body.as_object_mut() else {
 +        return;
 +    };
-+
 +    if let Some(max_tokens) = object.remove("max_tokens")
 +        && !max_tokens.is_null()
 +    {
@@ -51,7 +48,6 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +    else {
 +        return;
 +    };
-+
 +    let mut rewritten = Vec::with_capacity(messages.len());
 +    let mut pending_images = Vec::new();
 +    for mut message in std::mem::take(messages) {
@@ -59,11 +55,9 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +        if !is_tool && !pending_images.is_empty() {
 +            rewritten.push(strict_tool_image_message(std::mem::take(&mut pending_images)));
 +        }
-+
 +        if let Some(message_object) = message.as_object_mut() {
 +            message_object.remove("model_id");
 +            message_object.remove("reasoning_content");
-+
 +            if is_tool
 +                && let Some(blocks) = message_object
 +                    .get_mut("content")
@@ -110,8 +104,6 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +    })
 +}
 +
-+/// Remove xAI-only Responses extensions while retaining standard OpenAI
-+/// fields such as `reasoning.encrypted_content`.
 +fn sanitize_strict_response_body(body: &mut serde_json::Value) {
 +    let Some(object) = body.as_object_mut() else {
 +        return;
@@ -145,21 +137,31 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +        || lower == "x-compaction-at"
 +}
 +
- /// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
++/// Resolve `env_http_headers` (`header -> env var`) into `headers` via `getenv`, skipping unset/blank/invalid entries and trimming values.
  fn apply_env_http_headers(
      env_http_headers: &IndexMap<String, String>,
-@@ -343,6 +461,7 @@ struct ClientDefaults {
-     auth_scheme: AuthScheme,
+     getenv: impl Fn(&str) -> Option<String>,
+@@ -348,8 +456,9 @@
+     request_compression: RequestCompression,
      stream_tool_calls: bool,
-     extra_response_includes: Vec<String>,
+     reasoning_summary: Option<xai_grok_sampling_types::ReasoningSummary>,
+-    extra_response_includes: Vec<String>,
+-    doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
++    extra_response_includes: Vec<String>,
 +    strict_openai: bool,
-     doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
++    doom_loop_recovery: Option<xai_grok_sampling_types::DoomLoopRecoveryPolicy>,
  }
  
-@@ -503,6 +622,16 @@ impl SamplingClient {
+ /// Endpoint URL builder, resolved once at client construction so each request only appends its path.
+@@ -507,9 +616,18 @@
+ impl SamplingClient {
+     /// Uses an identity-specific client for configured mTLS; otherwise grabs the process-wide shared client.
      /// This does not perform any network I/O.
-     pub fn new(config: SamplerConfig) -> Result<Self> {
-         let mut headers = HeaderMap::new();
+-    pub fn new(config: SamplerConfig) -> Result<Self> {
+-        let mut headers = HeaderMap::new();
+-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
++    pub fn new(config: SamplerConfig) -> Result<Self> {
++        let mut headers = HeaderMap::new();
 +        let strict_openai = config
 +            .extra_headers
 +            .get(OPENAI_COMPAT_MARKER)
@@ -169,23 +171,25 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +                "openai_compat=\"strict\" supports only chat_completions or responses; messages uses the Anthropic Messages API",
 +            ));
 +        }
-+
-         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
++        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
          if let Some(ref api_key) = config.api_key {
              match config.auth_scheme {
-@@ -537,6 +666,11 @@ impl SamplingClient {
+                 AuthScheme::XApiKey => {
+@@ -542,8 +660,11 @@
+ 
          // Apply all extra headers verbatim
          // This is the single injection point for proxy-auth headers and any other URL- or environment-specific headers the session decides to set
-         for (key, value) in &config.extra_headers {
-+            if key == OPENAI_COMPAT_MARKER
-+                || (strict_openai && key.to_ascii_lowercase().starts_with("x-grok-"))
-+            {
+-        for (key, value) in &config.extra_headers {
+-            let header_name = HeaderName::try_from(key.as_str())
++        for (key, value) in &config.extra_headers {
++            if key == OPENAI_COMPAT_MARKER {
 +                continue;
 +            }
-             let header_name = HeaderName::try_from(key.as_str())
++            let header_name = HeaderName::try_from(key.as_str())
                  .map_err(|_| SamplingError::InvalidConfiguration("Invalid extra header name"))?;
              let header_value = HeaderValue::from_str(value)
-@@ -551,41 +685,49 @@ impl SamplingClient {
+                 .map_err(|_| SamplingError::InvalidConfiguration("Invalid extra header value"))?;
+@@ -557,52 +678,63 @@
              &mut headers,
          );
  
@@ -207,6 +211,81 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 -                header_value,
 -            );
 -        }
+-
+-        if let Some(user_id) = config.user_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(user_id)
+-        {
+-            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
+-        }
+-
+-        if let Some(conversation_group_id) = config.conversation_group_id.as_ref()
+-            && let Ok(header_value) = HeaderValue::from_str(conversation_group_id.as_ref())
+-        {
+-            headers.insert(
+-                HeaderName::from_static("x-grok-conv-group-id"),
+-                header_value,
+-            );
+-        }
+-
+-        {
+-            let client_id = config
+-                .client_identifier
+-                .clone()
+-                .unwrap_or_else(|| DEFAULT_CLIENT_IDENTIFIER.to_string());
+-            if let Ok(header_value) = HeaderValue::from_str(&client_id) {
+-                headers.insert(
+-                    HeaderName::from_static("x-grok-client-identifier"),
+-                    header_value,
+-                );
+-            }
+-        }
++        // Add x-grok-client-version header for version gating at the proxy.
++        if let Some(client_version) = config.client_version.as_ref()
++            && let Ok(header_value) = HeaderValue::from_str(client_version)
++        {
++            headers.insert(
++                HeaderName::from_static("x-grok-client-version"),
++                header_value,
++            );
++        }
++
++        if let Some(deployment_id) = config.deployment_id.as_ref()
++            && let Ok(header_value) = HeaderValue::from_str(deployment_id)
++        {
++            headers.insert(
++                HeaderName::from_static("x-grok-deployment-id"),
++                header_value,
++            );
++        }
++
++        if let Some(user_id) = config.user_id.as_ref()
++            && let Ok(header_value) = HeaderValue::from_str(user_id)
++        {
++            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
++        }
++
++        if let Some(conversation_group_id) = config.conversation_group_id.as_ref()
++            && let Ok(header_value) = HeaderValue::from_str(conversation_group_id.as_ref())
++        {
++            headers.insert(
++                HeaderName::from_static("x-grok-conv-group-id"),
++                header_value,
++            );
++        }
++
++        {
++            let client_id = config
++                .client_identifier
++                .clone()
++                .unwrap_or_else(|| DEFAULT_CLIENT_IDENTIFIER.to_string());
++            if let Ok(header_value) = HeaderValue::from_str(&client_id) {
++                headers.insert(
++                    HeaderName::from_static("x-grok-client-identifier"),
++                    header_value,
++                );
++            }
++        }
++
 +        if strict_openai {
 +            let grok_headers: Vec<_> = headers
 +                .keys()
@@ -216,77 +295,47 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +            for name in grok_headers {
 +                headers.remove(name);
 +            }
-+        } else {
-+            // Add x-grok-client-version header for version gating at the proxy.
-+            if let Some(client_version) = config.client_version.as_ref()
-+                && let Ok(header_value) = HeaderValue::from_str(client_version)
-+            {
-+                headers.insert(
-+                    HeaderName::from_static("x-grok-client-version"),
-+                    header_value,
-+                );
-+            }
++        }
  
--        if let Some(user_id) = config.user_id.as_ref()
--            && let Ok(header_value) = HeaderValue::from_str(user_id)
--        {
--            headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
--        }
-+            if let Some(deployment_id) = config.deployment_id.as_ref()
-+                && let Ok(header_value) = HeaderValue::from_str(deployment_id)
-+            {
-+                headers.insert(
-+                    HeaderName::from_static("x-grok-deployment-id"),
-+                    header_value,
-+                );
-+            }
- 
--        if let Some(conversation_group_id) = config.conversation_group_id.as_ref()
--            && let Ok(header_value) = HeaderValue::from_str(conversation_group_id.as_ref())
--        {
--            headers.insert(
--                HeaderName::from_static("x-grok-conv-group-id"),
--                header_value,
--            );
--        }
-+            if let Some(user_id) = config.user_id.as_ref()
-+                && let Ok(header_value) = HeaderValue::from_str(user_id)
-+            {
-+                headers.insert(HeaderName::from_static("x-grok-user-id"), header_value);
-+            }
- 
--        {
-+            if let Some(conversation_group_id) = config.conversation_group_id.as_ref()
-+                && let Ok(header_value) = HeaderValue::from_str(conversation_group_id.as_ref())
-+            {
-+                headers.insert(
-+                    HeaderName::from_static("x-grok-conv-group-id"),
-+                    header_value,
-+                );
-+            }
-             let client_id = config
-                 .client_identifier
-                 .clone()
-@@ -636,6 +778,7 @@ impl SamplingClient {
+         // Always set User-Agent: per-session origin if available, else fallback.
+         {
+@@ -641,9 +773,10 @@
+             reasoning_effort = config.reasoning_effort.map_or("unset", |e| e.into()),
+             has_api_key = config.api_key.is_some(),
              has_bearer_resolver = config.bearer_resolver.is_some(),
-             has_authorization_header = headers.get(AUTHORIZATION).is_some(),
-             has_x_api_key_header = headers.get(HeaderName::from_static("x-api-key")).is_some(),
+-            has_authorization_header = headers.get(AUTHORIZATION).is_some(),
+-            has_x_api_key_header = headers.get(HeaderName::from_static("x-api-key")).is_some(),
+-        );
++            has_authorization_header = headers.get(AUTHORIZATION).is_some(),
++            has_x_api_key_header = headers.get(HeaderName::from_static("x-api-key")).is_some(),
 +            strict_openai,
-         );
++        );
  
          let defaults = ClientDefaults {
-@@ -647,6 +790,7 @@ impl SamplingClient {
-             auth_scheme: config.auth_scheme,
+             model: config.model,
+@@ -655,8 +788,9 @@
+             request_compression: config.request_compression,
              stream_tool_calls: config.stream_tool_calls,
-             extra_response_includes: config.extra_response_includes,
+             reasoning_summary: config.reasoning_summary,
+-            extra_response_includes: config.extra_response_includes,
+-            doom_loop_recovery: config.doom_loop_recovery,
++            extra_response_includes: config.extra_response_includes,
 +            strict_openai,
-             doom_loop_recovery: config.doom_loop_recovery,
++            doom_loop_recovery: config.doom_loop_recovery,
          };
  
-@@ -848,6 +992,18 @@ impl SamplingClient {
-         Ok(request)
-     }
+         let endpoint = EndpointTemplate::new(&config.base_url, &config.query_params);
+@@ -864,10 +998,22 @@
+             request.top_p = self.defaults.top_p;
+         }
  
+-        Ok(request)
+-    }
+-
+-    /// `sent_bearer` is the fragment [`Self::post`] captured for the request that produced `response` (401 attribution).
++        Ok(request)
++    }
++
 +    fn apply_grok_headers(
 +        &self,
 +        grok_headers: GrokRequestHeaders<'_>,
@@ -299,23 +348,11 @@ index 977e94d2c584e93ca682e9a674531282278e70cc..cc40343207638ab2b28ae4edcc23f2c1
 +        }
 +    }
 +
-     /// `sent_bearer` is the fragment [`Self::post`] captured for the request that produced `response` (401 attribution).
++    /// `sent_bearer` is the fragment [`Self::post`] captured for the request that produced `response` (401 attribution).
      async fn handle_response(
          &self,
+         response: reqwest::Response,
 
-base-commit: 37949780c144e37df692e3d669051a21fec24f20
-prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
-prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
-prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
-prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
-prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
-prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
-prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
-prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
-prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
-prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
-prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
-prerequisite-patch-id: a2df50b861b2ab43015c282c11cd62129b00da1f
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
 -- 
-2.53.0.windows.2
-
+2.55.0

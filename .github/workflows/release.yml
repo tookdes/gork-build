@@ -1,9 +1,8 @@
 # Community release builder for Gork Build.
 #
-# Mirrors upstream's prebuilt-binary matrix: xai-org/grok-build ships
-# per-platform npm packages for darwin-{arm64,x64}, linux-{arm64,x64} and
-# win32-{arm64,x64} (crates/codegen/xai-grok-pager/npm/) — Gork Build
-# publishes the same six targets as GitHub release assets. Upstream has no
+# Gork Build release matrix: Windows x64/arm64, Linux x64/arm64/armv7,
+# and macOS x64/arm64 (seven primary artifacts). armv7 is built as a static
+# musl binary for old-kernel portability. Upstream has no
 # GitHub releases of its own; this repo's Releases page is the community
 # distribution channel (vendor auto-update is hard-off).
 #
@@ -98,9 +97,6 @@ jobs:
     if: needs.plan.outputs.proceed == 'true'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
-    # win32-arm64 mirrors upstream's matrix but rides a newer runner class;
-    # don't hold the whole release hostage to it.
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -109,6 +105,10 @@ jobs:
             runner: ubuntu-latest
           - platform: linux-arm64
             runner: ubuntu-24.04-arm
+          - platform: linux-armv7
+            runner: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            zig: true
           - platform: darwin-arm64
             runner: macos-latest
           - platform: darwin-x64
@@ -118,7 +118,6 @@ jobs:
             runner: windows-latest
           - platform: win32-arm64
             runner: windows-11-arm
-            experimental: true
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -138,7 +137,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libssl-dev cmake libclang-dev build-essential
+            pkg-config libssl-dev cmake libclang-dev build-essential binutils
 
       - name: Install system deps (Windows)
         if: runner.os == 'Windows'
@@ -181,11 +180,38 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
+      - name: Install Zig (armv7 musl)
+        if: matrix.zig == true
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: 0.15.1
+
+      - name: Install cargo-zigbuild (armv7 musl)
+        if: matrix.zig == true
+        run: cargo install cargo-zigbuild --version 0.23.4 --locked
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           shared-key: release-${{ matrix.platform }}
           cache-targets: "true"
+
+      - name: Prepare bundled ripgrep (armv7 musl)
+        if: matrix.zig == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG_PATH="$(bash maint/scripts/prepare_armv7_ripgrep.sh)"
+          echo "GROK_TOOLS_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+          echo "GROK_SHELL_BUNDLE_RG_PATH=${RG_PATH}" >> "$GITHUB_ENV"
+
+      - name: Fetch and patch vendor crates (armv7 musl)
+        if: matrix.zig == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --manifest-path .work/src/Cargo.toml --target "${{ matrix.target }}"
+          bash maint/scripts/apply_vendor_patches.sh
 
       - name: Build gork (release)
         shell: bash
@@ -196,12 +222,32 @@ jobs:
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-arg=/DEBUG:NONE' || '' }}
         run: |
           set -euo pipefail
-          if [[ -n "${{ matrix.target }}" ]]; then
+          if [[ "${{ matrix.zig || false }}" == "true" ]]; then
+            cargo zigbuild -p xai-grok-pager-bin --release --target "${{ matrix.target }}" \
+              --manifest-path .work/src/Cargo.toml
+          elif [[ -n "${{ matrix.target }}" ]]; then
             cargo build -p xai-grok-pager-bin --release --target "${{ matrix.target }}" \
               --manifest-path .work/src/Cargo.toml
           else
             cargo build -p xai-grok-pager-bin --release \
               --manifest-path .work/src/Cargo.toml
+          fi
+
+      - name: Verify armv7 static musl binary
+        if: matrix.platform == 'linux-armv7'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=".work/src/target/${{ matrix.target }}/release/gork"
+          file "$BIN"
+          readelf -h "$BIN" | grep -Eq 'Machine:[[:space:]]+ARM'
+          if readelf -l "$BIN" | grep -q 'Requesting program interpreter'; then
+            echo "armv7 artifact is dynamically linked (PT_INTERP present)" >&2
+            exit 1
+          fi
+          if readelf -d "$BIN" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "armv7 artifact has dynamic NEEDED entries" >&2
+            exit 1
           fi
 
       - name: Package
@@ -247,8 +293,7 @@ jobs:
   publish:
     name: Publish release
     needs: [plan, build]
-    # Publish when the non-experimental targets built; experimental targets
-    # (continue-on-error) count as success and simply ship if present.
+    # Publish only when all seven primary platform builds succeeded.
     if: needs.plan.outputs.proceed == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -271,9 +316,8 @@ jobs:
         run: |
           set -euo pipefail
           ls -la assets/
-          # Non-experimental matrix: a missing asset means users cannot install
-          # that platform. win32-arm64 is optional (continue-on-error builder).
-          REQUIRED=(linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64)
+          # Seven primary artifacts are release-blocking.
+          REQUIRED=(linux-x64 linux-arm64 linux-armv7 darwin-arm64 darwin-x64 win32-x64 win32-arm64)
           TAG="${{ needs.plan.outputs.tag }}"
           missing=0
           for plat in "${REQUIRED[@]}"; do
@@ -319,7 +363,7 @@ jobs:
           - Coding-data retention: **locked to opt-out**
           - Vendor auto-update (x.ai/cli): **hard-disabled** — update from this page or rebuild from this repository
 
-          Platform matrix mirrors upstream's prebuilt set (darwin/linux/win32 × arm64/x64). macOS binaries are unsigned: \`xattr -d com.apple.quarantine gork\` after extracting.
+          Platform matrix: Windows x64/arm64, Linux x64/arm64/armv7, macOS x64/arm64. The armv7 Linux artifact is static musl for old-kernel portability. macOS binaries are unsigned: \`xattr -d com.apple.quarantine gork\` after extracting.
 
           Verified in CI before this release: privacy contracts, patch-queue apply, cargo audit, and a extract-and-run smoke of every shipped archive.
           EOF

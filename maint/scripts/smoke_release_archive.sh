@@ -49,7 +49,7 @@ fi
 if [[ -z "$PLATFORM" ]]; then
   base="$(basename "$ARCHIVE")"
   # gork-<tag>-<platform>.tar.gz | .zip
-  if [[ "$base" =~ -(linux-x64|linux-arm64|darwin-x64|darwin-arm64|win32-x64|win32-arm64)\.(tar\.gz|zip)$ ]]; then
+  if [[ "$base" =~ -(linux-x64|linux-arm64|linux-armv7|darwin-x64|darwin-arm64|win32-x64|win32-arm64)\.(tar\.gz|zip)$ ]]; then
     PLATFORM="${BASH_REMATCH[1]}"
   fi
 fi

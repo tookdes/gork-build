@@ -1,4 +1,4 @@
-# Security minimum-version floors for the upstream-inherited Cargo.lock.
+# Security and toolchain-compatibility minimum-version floors for the upstream-inherited Cargo.lock.
 #
 # Applied during every sync by maint/scripts/apply_security_floors.py
 # (lock-policy post_apply hook): a floor bumps the locked package to exactly
@@ -29,3 +29,13 @@ advisory = "RUSTSEC-2026-0257"
 package = "h2"
 precise = "0.4.16"
 advisory = "RUSTSEC-2026-0258"
+
+[[floor]]
+package = "rustls"
+precise = "0.23.45"
+advisory = "RUSTSEC-2026-0285"
+
+[[floor]]
+package = "find-msvc-tools"
+precise = "0.1.14"
+advisory = "rust-1.94-windows-custom_flags-u32"

@@ -1,26 +1,25 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Gork CI <gork-ci@users.noreply.github.com>
-Date: Mon, 31 Aug 2026 10:00:00 -0700
-Subject: [PATCH] openai-strict-config: expose model compatibility policy
+Date: Fri, 3 Oct 2026 11:45:00 +0800
+Subject: [PATCH] openai-strict-config: port compatibility policy to 1.0.45
 
 Gork-Patch-Id: openai-strict-config
 Gork-Invariant: strict-openai-config
 Gork-Risk: critical
 ---
- .../docs/user-guide/11-custom-models.md       | 28 +++++++++++++++++++
- crates/codegen/xai-grok-sampler/src/config.rs | 18 ++++++++++++
- crates/codegen/xai-grok-sampler/src/lib.rs    |  4 +--
- .../xai-grok-shell/src/agent/config.rs        | 21 +++++++++++++-
- 4 files changed, 68 insertions(+), 3 deletions(-)
 
 diff --git a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
-index 9fa00e99c53cd17f60579acbd769fcd641a4c7ff..e37b4a47504f249c11e7e7177b558cdcd0636ba2 100644
 --- a/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
 +++ b/crates/codegen/xai-grok-pager/docs/user-guide/11-custom-models.md
-@@ -79,6 +79,33 @@ When you omit `api_backend`, Grok uses `chat_completions`.
+@@ -77,9 +77,36 @@
  
- To send provider-specific authentication or version headers -- for example, Anthropic's `x-api-key` -- use the `extra_headers` field described below. Grok sends those headers verbatim with every request to the endpoint.
+ When you omit `api_backend`, Grok uses `chat_completions`.
  
+-To send provider-specific authentication or version headers -- for example, Anthropic's `x-api-key` -- use the `extra_headers` field described below. Grok sends those headers verbatim with every request to the endpoint.
+-
+----
++To send provider-specific authentication or version headers -- for example, Anthropic's `x-api-key` -- use the `extra_headers` field described below. Grok sends those headers verbatim with every request to the endpoint.
++
 +### Strict OpenAI Compatibility
 +
 +OpenAI-compatible gateways vary in how much provider-specific request data they
@@ -48,25 +47,40 @@ index 9fa00e99c53cd17f60579acbd769fcd641a4c7ff..e37b4a47504f249c11e7e7177b558cdc
 +`messages` is the Anthropic Messages protocol, not an OpenAI protocol, and the
 +client rejects that combination before sending a request.
 +
- ---
++---
  
  ## Configuring Custom Models
-@@ -94,6 +121,7 @@ description = "Model description"          # Optional description
+ 
+@@ -93,7 +120,8 @@
+ description = "Model description"          # Optional description
  api_key = "sk-..."                        # API key for this provider (optional)
  env_key = "XAI_API_KEY"                   # Env var holding the API key (optional; string or array)
- api_backend = "chat_completions"          # "chat_completions", "responses", or "messages"
+-api_backend = "chat_completions"          # "chat_completions", "responses", or "messages"
++api_backend = "chat_completions"          # "chat_completions", "responses", or "messages"
 +openai_compat = "strict"                  # Optional: strict provider-neutral OpenAI wire shape
+ reasoning_summary = "concise"             # Responses API only: "none", "auto", "concise", or "detailed"
  temperature = 0.7                         # Sampling temperature
  top_p = 0.95                              # Nucleus sampling parameter
- max_completion_tokens = 8192              # Maximum tokens per response
 diff --git a/crates/codegen/xai-grok-sampler/src/config.rs b/crates/codegen/xai-grok-sampler/src/config.rs
-index ebe5052f90ff61273aa58e3afb595521b58b7c9e..3ae79baaab897217cc277ddb6aae9a8337accc5f 100644
 --- a/crates/codegen/xai-grok-sampler/src/config.rs
 +++ b/crates/codegen/xai-grok-sampler/src/config.rs
-@@ -22,6 +22,24 @@ pub enum AuthScheme {
-     XApiKey,
- }
+@@ -17,13 +17,31 @@
  
+ #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+ #[serde(rename_all = "snake_case")]
+-pub enum AuthScheme {
+-    #[default]
+-    Bearer,
+-    XApiKey,
+-}
+-
+-/// Set by the shell: `Zstd` only toward the cli-chat-proxy that advertised it.
++pub enum AuthScheme {
++    #[default]
++    Bearer,
++    XApiKey,
++}
++
 +/// Compatibility policy for OpenAI-shaped backends.
 +///
 +/// `Native` preserves Grok/xAI wire extensions. `Strict` asks the sampler to
@@ -85,83 +99,86 @@ index ebe5052f90ff61273aa58e3afb595521b58b7c9e..3ae79baaab897217cc277ddb6aae9a83
 +/// header name and is consumed by `SamplingClient::new` before header parsing.
 +pub const OPENAI_COMPAT_MARKER: &str = "@grok/openai-compat";
 +
- /// All knobs that control a single sampling request.
- /// Auth is selected separately via `auth_scheme`, while `api_backend` controls only the request/response protocol shape.
- #[derive(Debug, Clone, Serialize, Deserialize)]
++/// Set by the shell: `Zstd` only toward the cli-chat-proxy that advertised it.
+ #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(rename_all = "lowercase")]
+ pub enum RequestCompression {
 diff --git a/crates/codegen/xai-grok-sampler/src/lib.rs b/crates/codegen/xai-grok-sampler/src/lib.rs
-index b75b35e3ce502073d85ee0b97c143a4d58362372..340c2113712e2177cb58c16588412a838a4f0815 100644
 --- a/crates/codegen/xai-grok-sampler/src/lib.rs
 +++ b/crates/codegen/xai-grok-sampler/src/lib.rs
-@@ -36,8 +36,8 @@ pub use attribution::{
+@@ -38,10 +38,11 @@
+     Auth401AttributionCallback, BEARER_SUFFIX_LEN, SamplingConsumer, SharedAttributionCallback,
  };
  pub use client::{ApiBackend, SamplingClient, user_agent_string_for};
- pub use config::{
--    AuthScheme, BearerResolver, HeaderInjector, OriginClientInfo, RetryPolicy, SamplerConfig,
--    SharedBearerResolver, SharedHeaderInjector,
+-pub use config::{
+-    AuthScheme, BearerResolver, HeaderInjector, OriginClientInfo, RequestCompression, RetryPolicy,
+-    SamplerConfig, SharedBearerResolver, SharedHeaderInjector,
+-};
++pub use config::{
 +    AuthScheme, BearerResolver, HeaderInjector, OPENAI_COMPAT_MARKER, OpenAiCompat,
-+    OriginClientInfo, RetryPolicy, SamplerConfig, SharedBearerResolver, SharedHeaderInjector,
- };
++    OriginClientInfo, RequestCompression, RetryPolicy, SamplerConfig, SharedBearerResolver,
++    SharedHeaderInjector,
++};
  pub use doom_loop::DoomLoopSignalCollector;
  pub use events::{
+     SamplingChannel, SamplingErrorInfo, SamplingErrorKind, SamplingEvent, StripReason,
 diff --git a/crates/codegen/xai-grok-shell/src/agent/config.rs b/crates/codegen/xai-grok-shell/src/agent/config.rs
-index fef6af8458faa8d9d5c0aa3e93dc2f1e5161f4e0..e19f6ac77342205544c25c89402f1868d6283fe6 100644
 --- a/crates/codegen/xai-grok-shell/src/agent/config.rs
 +++ b/crates/codegen/xai-grok-shell/src/agent/config.rs
-@@ -13,7 +13,9 @@ use std::path::PathBuf;
- use std::sync::Arc;
+@@ -14,7 +14,7 @@
  use xai_grok_agent::prompt::skills::SkillsConfig;
- use xai_grok_login::{AuthManager, GrokComConfig, OidcAuthConfig};
+ use xai_grok_config::{Capability, Distribution};
+ use xai_grok_login::{AuthManager, GrokComConfig};
 -use xai_grok_sampler::{AuthScheme, SamplerConfig};
-+use xai_grok_sampler::{
-+    AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig,
-+};
++use xai_grok_sampler::{AuthScheme, OPENAI_COMPAT_MARKER, OpenAiCompat, SamplerConfig};
  use xai_grok_sampling_types::{
-     CompactionAtTokens, CompactionsRemaining, REASONING_EFFORT_META_KEY,
-     REASONING_EFFORTS_META_KEY, ReasoningEffort, ReasoningEffortOption,
-@@ -3825,6 +3827,7 @@ pub struct ConfigModelOverride {
+     CONTEXT_WINDOWS_META_KEY, CompactionAtTokens, CompactionsRemaining, MODEL_NOTICE_META_KEY,
+     ModelNotice, REASONING_EFFORT_META_KEY, REASONING_EFFORTS_META_KEY, ReasoningEffort,
+@@ -3479,10 +3479,11 @@
+     pub api_base_url: Option<String>,
+     pub max_completion_tokens: Option<u32>,
      pub temperature: Option<f32>,
-     pub top_p: Option<f32>,
-     pub api_backend: Option<ApiBackend>,
+-    pub top_p: Option<f32>,
+-    pub api_backend: Option<ApiBackend>,
+-    #[serde(default)]
+-    pub extra_headers: IndexMap<String, String>,
++    pub top_p: Option<f32>,
++    pub api_backend: Option<ApiBackend>,
 +    pub openai_compat: Option<OpenAiCompat>,
++    #[serde(default)]
++    pub extra_headers: IndexMap<String, String>,
      #[serde(default)]
-     pub extra_headers: IndexMap<String, String>,
+     pub query_params: IndexMap<String, String>,
      #[serde(default)]
-@@ -3901,6 +3904,22 @@ impl ConfigModelOverride {
-         if !self.extra_headers.is_empty() {
-             entry.info.extra_headers = self.extra_headers.clone();
+@@ -3560,10 +3561,23 @@
+         if let Some(ref v) = self.api_backend {
+             entry.info.api_backend = v.clone();
          }
+-        if !self.extra_headers.is_empty() {
+-            entry.info.extra_headers = self.extra_headers.clone();
+-        }
+-        if !self.query_params.is_empty() {
++        if !self.extra_headers.is_empty() {
++            entry.info.extra_headers = self.extra_headers.clone();
++        }
 +        // Carry the model-level compatibility policy through the existing
 +        // catalog -> ModelInfo -> SamplerConfig pipeline without widening all
 +        // of those public structs. SamplingClient consumes this reserved key
 +        // before HTTP header validation, so it can never reach the wire.
 +        if let Some(mode) = self.openai_compat {
-+            entry
-+                .info
-+                .extra_headers
-+                .shift_remove(OPENAI_COMPAT_MARKER);
++            entry.info.extra_headers.shift_remove(OPENAI_COMPAT_MARKER);
 +            if mode == OpenAiCompat::Strict {
-+                entry.info.extra_headers.insert(
-+                    OPENAI_COMPAT_MARKER.to_owned(),
-+                    "strict".to_owned(),
-+                );
++                entry
++                    .info
++                    .extra_headers
++                    .insert(OPENAI_COMPAT_MARKER.to_owned(), "strict".to_owned());
 +            }
 +        }
-         if !self.query_params.is_empty() {
++        if !self.query_params.is_empty() {
              entry.info.query_params = self.query_params.clone();
          }
+         if !self.env_http_headers.is_empty() {
 
-base-commit: 37949780c144e37df692e3d669051a21fec24f20
-prerequisite-patch-id: 3faabb3f5f3f9cc284ae32d741869f3ac9e2a4f2
-prerequisite-patch-id: a0179ea755b9c4829d69719f52537c0e3709e00c
-prerequisite-patch-id: a2786936b6f1ef54934f47262212f620c19bc9c2
-prerequisite-patch-id: 815c35f9bbe188fd0771c92919aef10bf7f6d2d6
-prerequisite-patch-id: 8aa342645140f87f24fad7c71958af2dd3ef183b
-prerequisite-patch-id: d7cd50e63fcc495cfcfe7680d2e6e4c5b1f71091
-prerequisite-patch-id: 9426de38962d407543ae90e613a9db8906497214
-prerequisite-patch-id: fb1e549ef7a66872fcdc996c6548d6a7392764c2
-prerequisite-patch-id: 64f0ec9605ebcdac1565a84ebd7259eea8836736
-prerequisite-patch-id: dd9b541d2aae4b7accaeebbd529bb87e4a50bf2c
-prerequisite-patch-id: a7e187a5b844c651a576f0404b4b832536ec93db
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
 -- 
-2.53.0.windows.2
-
+2.55.0

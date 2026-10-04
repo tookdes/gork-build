@@ -66,9 +66,21 @@ apply_one() {
   echo "ok: applied ${patch_file}"
 }
 
-apply_one "aws-lc-sys-0.39.1" \
-  "aws-lc-sys-0.39.1-skip-rndgetentcnt.patch" \
-  "Gork Build / ancient kernels"
+# rustls security floors can advance aws-lc-sys beyond upstream's original
+# lock. Carry the ancient-kernel entropy workaround across the known versions
+# and fail closed if neither supported crate is present.
+if find_crate_dir "aws-lc-sys-0.45.0" >/dev/null 2>&1; then
+  apply_one "aws-lc-sys-0.45.0" \
+    "aws-lc-sys-0.45.0-skip-rndgetentcnt.patch" \
+    "Gork Build / ancient kernels"
+elif find_crate_dir "aws-lc-sys-0.39.1" >/dev/null 2>&1; then
+  apply_one "aws-lc-sys-0.39.1" \
+    "aws-lc-sys-0.39.1-skip-rndgetentcnt.patch" \
+    "Gork Build / ancient kernels"
+else
+  echo "error: no supported aws-lc-sys crate found (expected 0.45.0 or 0.39.1)" >&2
+  exit 1
+fi
 
 apply_one "nono-0.53.0" \
   "nono-0.53.0-arm-sys-openat.patch" \
@@ -77,5 +89,56 @@ apply_one "nono-0.53.0" \
 apply_one "sqlite-vec-0.1.7-alpha.2" \
   "sqlite-vec-0.1.7-alpha.2-musl-uint-typedefs.patch" \
   "gork-build: skip BSD u_int*_t typedefs"
+
+# tikv-jemalloc-sys does not compile for armv7 musl under Zig
+# (unsupported -mcpu, missing aeabi_unaligned.c). This script runs only for
+# the zig/armv7 job, immediately before that zigbuild. Drop jemalloc from the
+# pager bin's default features and leave stock + sandbox-enforce in place.
+disable_jemalloc_default() {
+  local manifest="${ROOT}/.work/src/crates/codegen/xai-grok-pager-bin/Cargo.toml"
+  if [[ ! -f "$manifest" ]]; then
+    echo "error: pager-bin manifest not found: $manifest" >&2
+    exit 1
+  fi
+  python3 - "$manifest" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+start = None
+for i, line in enumerate(lines):
+    if line.startswith("default = ["):
+        start = i
+        break
+if start is None:
+    sys.exit("error: pager-bin default feature array not found")
+end = None
+for j in range(start + 1, len(lines)):
+    if lines[j].strip() == "]":
+        end = j
+        break
+if end is None:
+    sys.exit("error: pager-bin default feature array is unterminated")
+body = lines[start + 1 : end]
+kept = []
+removed = False
+for line in body:
+    if line.strip().strip(",").strip() == '"jemalloc"':
+        removed = True
+        continue
+    kept.append(line)
+if not removed:
+    sys.exit("error: jemalloc was not in pager-bin default features")
+joined = "".join(kept)
+if '"sandbox-enforce"' not in joined or '"stock"' not in joined:
+    sys.exit("error: sandbox-enforce or stock missing after dropping jemalloc")
+lines[start + 1 : end] = kept
+path.write_text("".join(lines), encoding="utf-8")
+print("ok: disabled jemalloc default feature for armv7 musl zigbuild")
+PY
+}
+
+disable_jemalloc_default
 
 echo "all vendor patches applied"
