@@ -1,0 +1,230 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 15:23:00 +0800
+Subject: [PATCH] session-recap-chat-model: follow active chat model by default
+
+Keep recap inference on the active session model unless the user explicitly
+sets a local [session_recap].model override. Ignore remote model pins so an
+empty local config cannot silently consume quota from a different model.
+
+Preserve low-effort recap sampling and all other remote recap tunables.
+
+Gork-Patch-Id: session-recap-chat-model
+Gork-Invariant: recap-follows-chat-model-by-default
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-grok-shell/src/util/config/resolve/session_recap.rs b/crates/codegen/xai-grok-shell/src/util/config/resolve/session_recap.rs
+--- a/crates/codegen/xai-grok-shell/src/util/config/resolve/session_recap.rs
++++ b/crates/codegen/xai-grok-shell/src/util/config/resolve/session_recap.rs
+@@ -1,7 +1,6 @@
+ use toml::Value as TomlValue;
+ use xai_grok_sampling_types::ReasoningEffort;
+ 
+-const SESSION_RECAP_MODEL_DEFAULT: &str = "grok-4.5";
+ const SESSION_RECAP_REASONING_EFFORT_DEFAULT: ReasoningEffort = ReasoningEffort::Low;
+ /// Pasted logs or files can make a user message huge; its opening carries the ask.
+ const SESSION_RECAP_USER_MESSAGE_MAX_CHARS_DEFAULT: usize = 2_000;
+@@ -18,12 +17,13 @@
+ const SESSION_RECAP_TIMEOUT_MS_MAX: u64 = 120_000;
+ 
+ /// Sampling settings for the session recap.
++/// Local `[session_recap]` wins per field over remote `session_recap_config`.
++/// The model is local-only: when unset, recap follows the active session/chat model.
++/// Other unset fields take the defaults above. The on/off gate stays the `session_recap` feature.
+-/// Local `[session_recap]` wins per field over remote `session_recap_config`; unset fields take the defaults above.
+-/// The on/off gate stays the `session_recap` feature.
+ #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+ #[serde(default)]
+ pub struct SessionRecapConfig {
++    /// Optional local-only override. When unset, the active session/chat model writes the recap.
+-    /// Used when the catalog serves it on the session's endpoint and auth; otherwise the session model writes the recap.
+     pub model: Option<String>,
+     /// Applied when the chosen model supports it; otherwise the session's effort stays.
+     pub reasoning_effort: Option<ReasoningEffort>,
+@@ -36,7 +36,7 @@
+ /// [`SessionRecapConfig`] with defaults applied and limits clamped.
+ #[derive(Clone, Debug, PartialEq)]
+ pub(crate) struct SessionRecapSettings {
++    pub(crate) model: Option<String>,
+-    pub(crate) model: String,
+     pub(crate) reasoning_effort: ReasoningEffort,
+     pub(crate) user_message_max_chars: usize,
+     pub(crate) agent_reply_max_chars: usize,
+@@ -53,11 +53,7 @@
+             )
+         };
+         SessionRecapSettings {
++            model: self.model.clone().filter(|m| !m.trim().is_empty()),
+-            model: self
+-                .model
+-                .clone()
+-                .filter(|m| !m.trim().is_empty())
+-                .unwrap_or_else(|| SESSION_RECAP_MODEL_DEFAULT.to_owned()),
+             reasoning_effort: self
+                 .reasoning_effort
+                 .unwrap_or(SESSION_RECAP_REASONING_EFFORT_DEFAULT),
+@@ -120,7 +116,9 @@
+     remote: SessionRecapConfig,
+ ) -> SessionRecapConfig {
+     SessionRecapConfig {
++        // Model routing is local-only. Remote settings must not silently consume quota
++        // from a model different from the one selected for the active chat.
++        model: config.model,
+-        model: config.model.or(remote.model),
+         reasoning_effort: config.reasoning_effort.or(remote.reasoning_effort),
+         user_message_max_chars: config
+             .user_message_max_chars
+@@ -133,7 +131,8 @@
+     }
+ }
+ 
++/// Overlay-free local config merged over the cached remote config at call time.
++/// The model field is intentionally excluded from the remote merge.
+-/// Overlay-free local config merged over the cached remote config, read at call time.
+ pub(crate) fn resolve_session_recap_settings_from_disk() -> SessionRecapSettings {
+     let config = match crate::config::ConfigLayers::load() {
+         Ok(layers) => {
+@@ -169,7 +168,7 @@
+         }))
+         .unwrap();
+         let settings = merge_session_recap_config(local, remote).settings();
++        assert_eq!(settings.model.as_deref(), Some("grok-4.20"));
+-        assert_eq!(settings.model, "grok-4.20");
+         assert_eq!(settings.reasoning_effort, ReasoningEffort::Medium);
+         assert_eq!(settings.user_message_max_chars, 3_000);
+         assert_eq!(
+@@ -189,4 +188,17 @@
+             None
+         );
+     }
++
++    #[test]
++    fn unset_local_model_follows_session_and_ignores_remote_model_pin() {
++        let remote = coerce_session_recap_json(serde_json::json!({
++            "model": "remote-model",
++            "reasoning_effort": "medium",
++        }))
++        .unwrap();
++        let settings = merge_session_recap_config(SessionRecapConfig::default(), remote).settings();
++
++        assert_eq!(settings.model, None);
++        assert_eq!(settings.reasoning_effort, ReasoningEffort::Medium);
++    }
+ }
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/recap.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/recap.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/recap.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_impl/recap.rs
+@@ -508,7 +508,8 @@
+         .await;
+     }
+ 
++    /// Client for the recap call: the active session/chat model by default.
++    /// A local recap-model override is used only when it shares the session's endpoint and auth.
+-    /// Client for the recap call: the configured model when it shares the session's endpoint and auth, else the session model.
+     /// The configured effort applies when the chosen model supports it, else the session's effort stays.
+     async fn recap_sampling_client(
+         &self,
+@@ -523,12 +524,14 @@
+     > {
+         self.refresh_token_if_expired().await;
+         let mut config = self.reconstruct_full_config().await;
++        if let Some(model) = settings.model.as_deref() {
++            if self.models_manager.model_shares_route(
++                model,
++                &config.base_url,
++                &config.api_backend,
++            ) {
++                config.model = model.to_owned();
++            }
+-        if self.models_manager.model_shares_route(
+-            &settings.model,
+-            &config.base_url,
+-            &config.api_backend,
+-        ) {
+-            config.model = settings.model.clone();
+         }
+         if self
+             .models_manager
+diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_tests/recap_display_only_tests.rs b/crates/codegen/xai-grok-shell/src/session/acp_session_tests/recap_display_only_tests.rs
+--- a/crates/codegen/xai-grok-shell/src/session/acp_session_tests/recap_display_only_tests.rs
++++ b/crates/codegen/xai-grok-shell/src/session/acp_session_tests/recap_display_only_tests.rs
+@@ -792,9 +792,9 @@
+         .await;
+ }
+ 
++/// The recap sends a compact transcript to the active session model at low effort, with no tools.
+-/// The recap sends a compact transcript to the default recap model at low effort, with no tools.
+ #[tokio::test(flavor = "current_thread")]
++async fn recap_request_uses_session_model_and_compact_transcript() {
+-async fn recap_request_uses_small_model_and_compact_transcript() {
+     use xai_grok_test_support::MockInferenceServer;
+ 
+     let local = tokio::task::LocalSet::new();
+@@ -814,29 +814,16 @@
+             let session_model = cfg.model.clone();
+             actor.chat_state_handle.update_sampling_config(cfg);
+ 
++            let mut session_entry = crate::agent::config::ModelEntry::fallback(
++                &session_model,
++                &crate::agent::config::EndpointsConfig::default(),
++            );
++            session_entry.info.supports_reasoning_effort = true;
++            session_entry.info.api_backend = xai_grok_sampling_types::ApiBackend::Responses;
++            session_entry.info.base_url = server.url();
++            actor
++                .models_manager
++                .insert_test_entry(session_model.clone(), session_entry);
+-            let recap_slug = crate::util::config::SessionRecapConfig::default()
+-                .settings()
+-                .model;
+-            let recap_model = |base_url: String| {
+-                let mut entry = crate::agent::config::ModelEntry::fallback(
+-                    &recap_slug,
+-                    &crate::agent::config::EndpointsConfig::default(),
+-                );
+-                entry.info.supports_reasoning_effort = true;
+-                entry.info.api_backend = xai_grok_sampling_types::ApiBackend::Responses;
+-                entry.info.base_url = base_url;
+-                actor.models_manager.insert_test_entry(&recap_slug, entry);
+-            };
+-            let last_model = || {
+-                let body = server
+-                    .requests()
+-                    .into_iter()
+-                    .rev()
+-                    .find(|r| r.path.contains("responses"))
+-                    .and_then(|r| r.body)
+-                    .expect("recap body must be JSON");
+-                j(&body, "model").as_str().map(str::to_owned)
+-            };
+ 
+             actor.chat_state_handle.replace_conversation(vec![
+                 ConversationItem::system("you are a coding agent"),
+@@ -845,14 +832,8 @@
+                 ConversationItem::assistant("it enforces shared-xor-mutable"),
+             ]);
+ 
+-            // Listed on another endpoint: the session model writes the recap.
+-            recap_model("https://elsewhere.example/v1".to_owned());
+             actor.handle_recap(false).await;
+-            assert_eq!(last_model(), Some(session_model));
+ 
+-            recap_model(server.url());
+-            actor.handle_recap(false).await;
+-
+             let requests = server.requests();
+             let recap_req = requests
+                 .iter()
+@@ -865,7 +846,7 @@
+             assert!(conv_id.starts_with("recap-"), "{conv_id}");
+ 
+             let body = recap_req.body.as_ref().expect("recap body must be JSON");
++            assert_eq!(j(body, "model").as_str(), Some(session_model.as_str()));
+-            assert_eq!(j(body, "model").as_str(), Some("grok-4.5"));
+             assert_eq!(j(j(body, "reasoning"), "effort").as_str(), Some("low"));
+             assert!(
+                 j(body, "tools").as_array().is_none_or(|t| t.is_empty()),
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0
