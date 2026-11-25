@@ -7,6 +7,10 @@ on:
     paths:
       - '.github/workflows/build-binaries.yml'
       - '.github/workflows/release.yml'
+      - 'maint/patches/**'
+      - 'maint/patchset.toml'
+      - 'maint/upstream.lock.toml'
+      - 'maint/vendor-patches/**'
   workflow_dispatch:
 
 permissions:

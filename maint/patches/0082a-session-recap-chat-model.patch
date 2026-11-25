@@ -124,16 +124,15 @@ diff --git a/crates/codegen/xai-grok-shell/src/session/acp_session_impl/recap.rs
      /// The configured effort applies when the chosen model supports it, else the session's effort stays.
      async fn recap_sampling_client(
          &self,
-@@ -523,12 +524,14 @@
+@@ -523,12 +524,13 @@
      > {
          self.refresh_token_if_expired().await;
          let mut config = self.reconstruct_full_config().await;
 +        if let Some(model) = settings.model.as_deref() {
-+            if self.models_manager.model_shares_route(
-+                model,
-+                &config.base_url,
-+                &config.api_backend,
-+            ) {
++            if self
++                .models_manager
++                .model_shares_route(model, &config.base_url, &config.api_backend)
++            {
 +                config.model = model.to_owned();
 +            }
 -        if self.models_manager.model_shares_route(
