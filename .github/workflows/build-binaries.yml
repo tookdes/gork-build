@@ -2,6 +2,11 @@ name: Build Binaries
 
 on:
   pull_request:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-binaries.yml'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -192,7 +197,7 @@ jobs:
       - name: Build gork
         shell: bash
         env:
-          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-arg=/DEBUG:NONE' || '' }}
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C force-unwind-tables=yes -C target-feature=+crt-static -C link-arg=/DEBUG:NONE' || '' }}
         run: |
           set -euo pipefail
           if [[ "${{ matrix.zig || false }}" == "true" ]]; then

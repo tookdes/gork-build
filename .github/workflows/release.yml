@@ -219,7 +219,7 @@ jobs:
           # MSVC: this binary's symbol count exceeds PDB limits
           # (LNK4319/LNK1318 on both win32 targets). Release artifacts ship
           # without debug info anyway — disable PDB generation outright.
-          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C link-arg=/DEBUG:NONE' || '' }}
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C force-unwind-tables=yes -C target-feature=+crt-static -C link-arg=/DEBUG:NONE' || '' }}
         run: |
           set -euo pipefail
           if [[ "${{ matrix.zig || false }}" == "true" ]]; then
