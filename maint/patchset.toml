@@ -158,3 +158,11 @@ id = "rustfmt-sync"
 file = "0083-rustfmt-sync.patch"
 critical = true
 contracts = []
+
+# Keep the stale public 1.0.45 source buildable against the current RustSec
+# database without suppressing known vulnerabilities.
+[[patch]]
+id = "security-dependency-refresh"
+file = "0084-security-dependency-refresh.patch"
+critical = true
+contracts = ["cargo-audit"]

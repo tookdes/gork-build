@@ -17,8 +17,8 @@ advisory = "RUSTSEC-2026-0204"
 
 [[floor]]
 package = "quinn-proto"
-precise = "0.11.15"
-advisory = "RUSTSEC-2026-0185"
+precise = "0.11.19"
+advisory = "RUSTSEC-2026-0338/0339/0340/0341/0342/0523/0524"
 
 [[floor]]
 package = "webbrowser"
@@ -32,10 +32,96 @@ advisory = "RUSTSEC-2026-0258"
 
 [[floor]]
 package = "rustls"
-precise = "0.23.45"
-advisory = "RUSTSEC-2026-0285"
+precise = "0.23.46"
+advisory = "RUSTSEC-2026-0285/0346/0347/0348/0349"
 
 [[floor]]
 package = "find-msvc-tools"
 precise = "0.1.14"
 advisory = "rust-1.94-windows-custom_flags-u32"
+
+# Post-1.0.45 security refresh. These remain explicit so the inherited
+# upstream lock cannot silently fall below versions known to fix RustSec issues.
+
+[[floor]]
+package = "jsonwebtoken"
+precise = "10.4.0"
+advisory = "RUSTSEC-2026-0387 (paired with aws_lc_rs backend switch)"
+
+[[floor]]
+package = "rusqlite"
+precise = "0.41.0"
+advisory = "RUSTSEC-2026-0459"
+
+[[floor]]
+package = "libsqlite3-sys"
+precise = "0.39.0"
+advisory = "RUSTSEC-2026-0459"
+
+[[floor]]
+package = "libz-sys"
+precise = "1.1.31"
+advisory = "RUSTSEC-2026-0418"
+
+[[floor]]
+package = "pulldown-cmark"
+precise = "0.13.6"
+advisory = "RUSTSEC-2026-0414/0433"
+
+[[floor]]
+package = "quinn-udp"
+precise = "0.5.16"
+advisory = "RUSTSEC-2026-0538"
+
+[[floor]]
+package = "rmcp"
+precise = "3.9.0"
+advisory = "RUSTSEC-2026-0457/0461/0462"
+
+[[floor]]
+package = "url"
+precise = "2.5.9"
+advisory = "RUSTSEC-2026-0592"
+
+[[floor]]
+package = "webpki-root-certs"
+precise = "1.0.10"
+advisory = "RUSTSEC-2026-0383"
+
+[[floor]]
+package = "webpki-roots"
+from = "1.0.3"
+precise = "1.0.10"
+advisory = "RUSTSEC-2026-0381"
+
+[[floor]]
+package = "office_oxide"
+precise = "0.1.17"
+advisory = "zip >=9 security line"
+
+[[floor]]
+package = "zip"
+from = "3.0.0"
+precise = "9.1.1"
+advisory = "RUSTSEC-2026-0367/0368/0369/0429/0545/0548"
+
+[[floor]]
+package = "zip"
+from = "8.6.0"
+precise = "9.1.1"
+advisory = "RUSTSEC-2026-0367/0368/0369/0429/0545/0546/0547/0548"
+
+[[floor]]
+package = "zstd"
+precise = "0.13.4"
+advisory = "RUSTSEC-2026-0391"
+
+[[floor]]
+package = "zstd-safe"
+precise = "7.4.0"
+advisory = "RUSTSEC-2026-0395/0396/0397/0398/0399/0400/0401/0402/0403/0404/0405/0406"
+
+[[floor]]
+package = "zstd-sys"
+precise = "2.1.2"
+advisory = "RUSTSEC-2026-0410"

@@ -41,24 +41,38 @@ def main() -> int:
         print("security-floors: empty floor list — nothing to do")
         return 0
 
-    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    locked: dict[str, list[str]] = {}
-    for pkg in lock.get("package") or []:
-        locked.setdefault(pkg["name"], []).append(pkg["version"])
+    def locked_versions(name: str) -> list[str]:
+        # Re-read before every floor: an earlier cargo update may replace
+        # transitive packages that a later floor is meant to inspect.
+        lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+        return [
+            pkg["version"]
+            for pkg in lock.get("package") or []
+            if pkg["name"] == name
+        ]
 
     rc = 0
     for floor in floors:
         name = floor["package"]
         precise = floor["precise"]
         advisory = floor.get("advisory", "")
-        versions = locked.get(name)
+        versions = locked_versions(name)
         if not versions:
             print(f"security-floors: {name} not in Cargo.lock — skip ({advisory})")
             continue
-        if len(versions) > 1:
+        source = floor.get("from")
+        if source is not None:
+            if source not in versions:
+                print(
+                    f"security-floors: {name}@{source} not locked — skip "
+                    f"(present={versions}, {advisory})"
+                )
+                continue
+            versions = [source]
+        elif len(versions) > 1:
             print(
                 f"security-floors: {name} has multiple locked versions {versions}; "
-                f"refusing to guess — resolve manually ({advisory})",
+                f"add an explicit 'from' selector instead of guessing ({advisory})",
                 file=sys.stderr,
             )
             rc = 1

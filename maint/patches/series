@@ -21,3 +21,4 @@
 0082-armv7-portability.patch
 0082a-session-recap-chat-model.patch
 0083-rustfmt-sync.patch
+0084-security-dependency-refresh.patch

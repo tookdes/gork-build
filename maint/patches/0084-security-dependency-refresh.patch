@@ -1,0 +1,271 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Thu, 26 Nov 2026 23:58:00 +0800
+Subject: [PATCH] security-dependency-refresh: advance vulnerable dependencies
+
+Refresh security-sensitive dependency constraints while the public upstream
+source remains pinned at 1.0.45. Keep the changes narrow: move JWT verification
+to the AWS-LC backend, advance bundled SQLite to the patched rusqlite line, and
+move ZIP readers/writers to the post-advisory 9.x API line.
+
+Gork-Patch-Id: security-dependency-refresh
+Gork-Invariant: cargo-audit-no-known-vulnerabilities
+Gork-Risk: critical
+---
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -395,9 +395,9 @@
+ xai-tool-types = { path = "crates/common/xai-tool-types" }
+ xai-tracing = { path = "crates/common/xai-tracing" }
+ xai-tty-utils = { path = "crates/codegen/xai-tty-utils" }
+ zbus = { version = "5" }
+-zip = "3"
++zip = "9.1"
+ zstd = "0.13"
+ 
+ [profile.release]
+ incremental = true
+diff --git a/crates/codegen/xai-grok-tools/Cargo.toml b/crates/codegen/xai-grok-tools/Cargo.toml
+--- a/crates/codegen/xai-grok-tools/Cargo.toml
++++ b/crates/codegen/xai-grok-tools/Cargo.toml
+@@ -42,9 +42,9 @@
+ # PPTX text extraction (implementations/read_file/pptx.rs). Deliberately NOT
+ # `workspace = true`: the workspace `zip` pin has default features on, which
+ # drag aes/bzip2/lzma/zstd into the shipped pager binary. PPTX entries are
+ # only ever stored or deflated.
+-zip = { version = "3", default-features = false, features = ["deflate-flate2"] }
++zip = { version = "9.1", default-features = false, features = ["deflate"] }
+ quick-xml = { workspace = true }
+ indexmap = { workspace = true, features = ["serde"] }
+ minijinja = { version = "2", features = ["custom_syntax"] }
+ parking_lot = { workspace = true }
+diff --git a/crates/codegen/xai-grok-update/Cargo.toml b/crates/codegen/xai-grok-update/Cargo.toml
+--- a/crates/codegen/xai-grok-update/Cargo.toml
++++ b/crates/codegen/xai-grok-update/Cargo.toml
+@@ -31,8 +31,8 @@
+ sha2 = { workspace = true }
+ xai-tty-utils = { workspace = true }
+ # MinGit archive extraction. Not `workspace = true`: the workspace pin has
+ # default features on (aes/bzip2/lzma/zstd); MinGit entries are only deflated.
+-zip = { version = "3", default-features = false, features = ["deflate-flate2"] }
++zip = { version = "9.1", default-features = false, features = ["deflate"] }
+ 
+ [target.'cfg(target_os = "macos")'.dependencies]
+ libc = { workspace = true }
+diff --git a/crates/codegen/xai-grok-login/Cargo.toml b/crates/codegen/xai-grok-login/Cargo.toml
+--- a/crates/codegen/xai-grok-login/Cargo.toml
++++ b/crates/codegen/xai-grok-login/Cargo.toml
+@@ -22,9 +22,9 @@
+ backon = { workspace = true }
+ base64 = { workspace = true }
+ chrono = { workspace = true }
+ fs2 = { workspace = true }
+-jsonwebtoken = { version = "10", features = ["rust_crypto"] }
++jsonwebtoken = { version = "10.4", features = ["aws_lc_rs"] }
+ obfstr = { workspace = true }
+ parking_lot = { workspace = true }
+ rand = { workspace = true }
+ reqwest = { workspace = true, features = ["stream", "blocking"] }
+diff --git a/crates/codegen/xai-fast-worktree/Cargo.toml b/crates/codegen/xai-fast-worktree/Cargo.toml
+--- a/crates/codegen/xai-fast-worktree/Cargo.toml
++++ b/crates/codegen/xai-fast-worktree/Cargo.toml
+@@ -46,9 +46,9 @@
+ num_cpus = { workspace = true }
+ 
+ reflink-copy = { workspace = true }
+ rapidhash = "4.2.0"
+-rusqlite = { version = "0.37", features = ["bundled"], optional = true }
++rusqlite = { version = "0.41", features = ["bundled"], optional = true }
+ serde = { workspace = true, features = ["derive"] }
+ serde_json = { workspace = true }
+ strum = { workspace = true }
+ sha2 = { workspace = true, optional = true }
+@@ -67,8 +67,8 @@
+ serde_json = { workspace = true }
+ xai-test-utils = { workspace = true }
+ # Unconditional because cargo doesn't support feature-gated dev-deps cleanly.
+ # Only used by tests behind #[cfg(feature = "metadata")] in db/tests.rs.
+-rusqlite = { version = "0.37", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled"] }
+ 
+ [target.'cfg(unix)'.dependencies]
+ libc = { workspace = true }
+diff --git a/crates/codegen/xai-grok-memory/Cargo.toml b/crates/codegen/xai-grok-memory/Cargo.toml
+--- a/crates/codegen/xai-grok-memory/Cargo.toml
++++ b/crates/codegen/xai-grok-memory/Cargo.toml
+@@ -26,9 +26,9 @@
+ reqwest = { workspace = true }
+ regex = { workspace = true }
+ reqwest-middleware = { workspace = true }
+-# rusqlite 0.37 + bundled = self-contained SQLite (>= 3.50.2) with FTS5.
+-rusqlite = { version = "0.37", features = ["bundled"] }
++# rusqlite 0.41 + bundled = self-contained SQLite with FTS5.
++rusqlite = { version = "0.41", features = ["bundled"] }
+ serde = { workspace = true }
+ serde_json = { workspace = true }
+ # sqlite-vec: vec0 virtual table for KNN vector search.
+ sqlite-vec = "=0.1.7-alpha.2"
+diff --git a/crates/codegen/xai-sqlite-journal/Cargo.toml b/crates/codegen/xai-sqlite-journal/Cargo.toml
+--- a/crates/codegen/xai-sqlite-journal/Cargo.toml
++++ b/crates/codegen/xai-sqlite-journal/Cargo.toml
+@@ -6,9 +6,9 @@
+ description = "Filesystem-aware SQLite journal-mode selection: WAL on local disks, rollback journal on network mounts where WAL's mmap'd -shm is unsafe"
+ 
+ [dependencies]
+ # Matches the pinned rusqlite of every consumer (bundled = self-contained SQLite).
+-rusqlite = { version = "0.37", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled"] }
+ strum = { workspace = true }
+ tracing = { workspace = true }
+ 
+ [target.'cfg(unix)'.dependencies]
+diff --git a/crates/codegen/xai-grok-session-search/Cargo.toml b/crates/codegen/xai-grok-session-search/Cargo.toml
+--- a/crates/codegen/xai-grok-session-search/Cargo.toml
++++ b/crates/codegen/xai-grok-session-search/Cargo.toml
+@@ -13,9 +13,8 @@
+ parking_lot = { workspace = true }
+-# rusqlite 0.37 + bundled = self-contained SQLite (>= 3.50.2) with FTS5.
+-# Pinned to 0.32 elsewhere resolved CVE-2025-29087, CVE-2025-3277,
+-# CVE-2025-6965; keep this in step with xai-sqlite-journal.
+-rusqlite = { version = "0.37", features = ["bundled"] }
++# rusqlite 0.41 + bundled = self-contained SQLite with FTS5.
++# Keep this in step with xai-sqlite-journal.
++rusqlite = { version = "0.41", features = ["bundled"] }
+ serde = { workspace = true }
+ serde_json = { workspace = true }
+ tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+ tracing = { workspace = true }
+diff --git a/crates/codegen/xai-grok-dashboard-store/Cargo.toml b/crates/codegen/xai-grok-dashboard-store/Cargo.toml
+--- a/crates/codegen/xai-grok-dashboard-store/Cargo.toml
++++ b/crates/codegen/xai-grok-dashboard-store/Cargo.toml
+@@ -7,9 +7,9 @@
+ 
+ [dependencies]
+-# rusqlite 0.37 + bundled = self-contained SQLite (>= 3.50.2).
+-# Keep in step with xai-sqlite-journal (CVE-2025-29087/-3277/-6965 floor).
+-rusqlite = { version = "0.37", features = ["bundled"] }
++# rusqlite 0.41 + bundled = self-contained SQLite.
++# Keep in step with xai-sqlite-journal.
++rusqlite = { version = "0.41", features = ["bundled"] }
+ strum = { workspace = true }
+ thiserror = { workspace = true }
+ tracing = { workspace = true }
+ xai-grok-config = { workspace = true }
+diff --git a/crates/codegen/xai-grok-permission-rules/Cargo.toml b/crates/codegen/xai-grok-permission-rules/Cargo.toml
+--- a/crates/codegen/xai-grok-permission-rules/Cargo.toml
++++ b/crates/codegen/xai-grok-permission-rules/Cargo.toml
+@@ -10,9 +10,9 @@
+ dunce = { workspace = true }
+ fs2 = { workspace = true }
+ git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+ glob = "0.3"
+-rusqlite = { version = "0.37", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled"] }
+ serde = { workspace = true }
+ serde_json = { workspace = true, features = ["preserve_order"] }
+ tempfile = { workspace = true }
+ toml = { workspace = true, features = ["preserve_order"] }
+diff --git a/crates/codegen/xai-grok-foreign-sessions/Cargo.toml b/crates/codegen/xai-grok-foreign-sessions/Cargo.toml
+--- a/crates/codegen/xai-grok-foreign-sessions/Cargo.toml
++++ b/crates/codegen/xai-grok-foreign-sessions/Cargo.toml
+@@ -19,9 +19,9 @@
+ git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
+ # Per-workspace store-directory hashing for the optional peer-editor scanner.
+ md5 = { workspace = true, optional = true }
+ # Read-only/query-only access to the foreign SQLite stores.
+-rusqlite = { version = "0.37", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled"] }
+ serde_json = { workspace = true }
+ # Session ids are UUIDs; only parsing is used, no generation.
+ uuid = { workspace = true }
+ # Home-root resolution for the per-tool session stores (dirs::home_dir is banned).
+diff --git a/crates/codegen/xai-grok-login/src/flow.rs b/crates/codegen/xai-grok-login/src/flow.rs
+--- a/crates/codegen/xai-grok-login/src/flow.rs
++++ b/crates/codegen/xai-grok-login/src/flow.rs
+@@ -1582,9 +1582,9 @@
+             &cfg,
+         ));
+     }
+     fn ensure_crypto_provider() {
+-        let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
++        let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
+     }
+     fn team_jwt(principal_id: &str) -> String {
+         ensure_crypto_provider();
+         jsonwebtoken::encode(
+diff --git a/crates/codegen/xai-grok-login/src/recovery.rs b/crates/codegen/xai-grok-login/src/recovery.rs
+--- a/crates/codegen/xai-grok-login/src/recovery.rs
++++ b/crates/codegen/xai-grok-login/src/recovery.rs
+@@ -923,9 +923,9 @@
+             "concurrent records on one rejected credential must emit exactly once",
+         );
+     }
+     fn ensure_crypto_provider() {
+-        let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
++        let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
+     }
+     fn team_jwt(principal_id: &str) -> String {
+         ensure_crypto_provider();
+         jsonwebtoken::encode(
+diff --git a/crates/codegen/xai-grok-login/src/device_code.rs b/crates/codegen/xai-grok-login/src/device_code.rs
+--- a/crates/codegen/xai-grok-login/src/device_code.rs
++++ b/crates/codegen/xai-grok-login/src/device_code.rs
+@@ -549,9 +549,9 @@
+     }
+ 
+     /// jsonwebtoken needs a process-level CryptoProvider; tests that encode JWTs can't rely on another test having installed it first.
+     fn ensure_crypto_provider() {
+-        let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
++        let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
+     }
+ 
+     #[test]
+     fn build_auth_seeds_team_metadata_from_access_token() {
+diff --git a/crates/codegen/xai-grok-login/src/oidc/test_helpers.rs b/crates/codegen/xai-grok-login/src/oidc/test_helpers.rs
+--- a/crates/codegen/xai-grok-login/src/oidc/test_helpers.rs
++++ b/crates/codegen/xai-grok-login/src/oidc/test_helpers.rs
+@@ -11,9 +11,9 @@
+ }
+ pub(super) const TEST_CLIENT_ID: &str = "test-client-id";
+ pub(super) fn ensure_crypto_provider() {
+     xai_grok_extra_ca::ensure_default_crypto_provider();
+-    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
++    let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
+ }
+ pub(super) fn generate_test_rsa_key() -> (String, String, String) {
+     use rsa::pkcs8::EncodePrivateKey;
+     use rsa::traits::PublicKeyParts;
+diff --git a/crates/codegen/xai-grok-login/src/manager_tests.rs b/crates/codegen/xai-grok-login/src/manager_tests.rs
+--- a/crates/codegen/xai-grok-login/src/manager_tests.rs
++++ b/crates/codegen/xai-grok-login/src/manager_tests.rs
+@@ -3468,9 +3468,9 @@
+     assert!(!auth.is_data_collection_disabled());
+ }
+ /// `jsonwebtoken` needs a process-level CryptoProvider; tests that encode JWTs can't rely on another test having installed it first.
+ fn ensure_crypto_provider() {
+-    let _ = jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER.install_default();
++    let _ = jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER.install_default();
+ }
+ /// A signed (HS256) access token carrying a `Team` principal, matching the shape `peek_access_token_principal` extracts in production.
+ fn team_jwt(principal_id: &str) -> String {
+     ensure_crypto_provider();
+diff --git a/crates/codegen/xai-grok-login/src/oidc/login.rs b/crates/codegen/xai-grok-login/src/oidc/login.rs
+--- a/crates/codegen/xai-grok-login/src/oidc/login.rs
++++ b/crates/codegen/xai-grok-login/src/oidc/login.rs
+@@ -362,10 +362,10 @@
+ ) -> anyhow::Result<(GrokAuth, bool)> {
+     tracing::info!(issuer = %oidc.issuer, client_id = %oidc.client_id, "OIDC: starting login flow");
+ 
+     // Ensure jsonwebtoken CryptoProvider is installed (required for JWT validation).
+     jsonwebtoken::crypto::CryptoProvider::install_default(
+-        &jsonwebtoken::crypto::rust_crypto::DEFAULT_PROVIDER,
++        &jsonwebtoken::crypto::aws_lc::DEFAULT_PROVIDER,
+     )
+     .ok();
+ 
+     let discovery = discover(&oidc.issuer).await?;
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0
