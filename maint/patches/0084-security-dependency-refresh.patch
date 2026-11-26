@@ -76,7 +76,7 @@ diff --git a/crates/codegen/xai-fast-worktree/Cargo.toml b/crates/codegen/xai-fa
  reflink-copy = { workspace = true }
  rapidhash = "4.2.0"
 -rusqlite = { version = "0.37", features = ["bundled"], optional = true }
-+rusqlite = { version = "0.41", features = ["bundled"], optional = true }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"], optional = true }
  serde = { workspace = true, features = ["derive"] }
  serde_json = { workspace = true }
  strum = { workspace = true }
@@ -87,7 +87,7 @@ diff --git a/crates/codegen/xai-fast-worktree/Cargo.toml b/crates/codegen/xai-fa
  # Unconditional because cargo doesn't support feature-gated dev-deps cleanly.
  # Only used by tests behind #[cfg(feature = "metadata")] in db/tests.rs.
 -rusqlite = { version = "0.37", features = ["bundled"] }
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  
  [target.'cfg(unix)'.dependencies]
  libc = { workspace = true }
@@ -101,7 +101,7 @@ diff --git a/crates/codegen/xai-grok-memory/Cargo.toml b/crates/codegen/xai-grok
 -# rusqlite 0.37 + bundled = self-contained SQLite (>= 3.50.2) with FTS5.
 -rusqlite = { version = "0.37", features = ["bundled"] }
 +# rusqlite 0.41 + bundled = self-contained SQLite with FTS5.
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  serde = { workspace = true }
  serde_json = { workspace = true }
  # sqlite-vec: vec0 virtual table for KNN vector search.
@@ -115,7 +115,7 @@ diff --git a/crates/codegen/xai-sqlite-journal/Cargo.toml b/crates/codegen/xai-s
  [dependencies]
  # Matches the pinned rusqlite of every consumer (bundled = self-contained SQLite).
 -rusqlite = { version = "0.37", features = ["bundled"] }
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  strum = { workspace = true }
  tracing = { workspace = true }
  
@@ -131,7 +131,7 @@ diff --git a/crates/codegen/xai-grok-session-search/Cargo.toml b/crates/codegen/
 -rusqlite = { version = "0.37", features = ["bundled"] }
 +# rusqlite 0.41 + bundled = self-contained SQLite with FTS5.
 +# Keep this in step with xai-sqlite-journal.
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  serde = { workspace = true }
  serde_json = { workspace = true }
  tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
@@ -147,7 +147,7 @@ diff --git a/crates/codegen/xai-grok-dashboard-store/Cargo.toml b/crates/codegen
 -rusqlite = { version = "0.37", features = ["bundled"] }
 +# rusqlite 0.41 + bundled = self-contained SQLite.
 +# Keep in step with xai-sqlite-journal.
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  strum = { workspace = true }
  thiserror = { workspace = true }
  tracing = { workspace = true }
@@ -161,7 +161,7 @@ diff --git a/crates/codegen/xai-grok-permission-rules/Cargo.toml b/crates/codege
  git2 = { version = "0.20", default-features = false, features = ["vendored-libgit2"] }
  glob = "0.3"
 -rusqlite = { version = "0.37", features = ["bundled"] }
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  serde = { workspace = true }
  serde_json = { workspace = true, features = ["preserve_order"] }
  tempfile = { workspace = true }
@@ -175,7 +175,7 @@ diff --git a/crates/codegen/xai-grok-foreign-sessions/Cargo.toml b/crates/codege
  md5 = { workspace = true, optional = true }
  # Read-only/query-only access to the foreign SQLite stores.
 -rusqlite = { version = "0.37", features = ["bundled"] }
-+rusqlite = { version = "0.41", features = ["bundled"] }
++rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
  serde_json = { workspace = true }
  # Session ids are UUIDs; only parsing is used, no generation.
  uuid = { workspace = true }
@@ -265,44 +265,6 @@ diff --git a/crates/codegen/xai-grok-login/src/oidc/login.rs b/crates/codegen/xa
      .ok();
  
      let discovery = discover(&oidc.issuer).await?;
-
-diff --git a/crates/codegen/xai-fast-worktree/src/db/queries.rs b/crates/codegen/xai-fast-worktree/src/db/queries.rs
---- a/crates/codegen/xai-fast-worktree/src/db/queries.rs
-+++ b/crates/codegen/xai-fast-worktree/src/db/queries.rs
-@@ -188,17 +188,29 @@
- }
- 
- pub fn stats(conn: &Connection) -> Result<DbStats> {
--    let total: u64 = conn.query_row("SELECT COUNT(*) FROM worktrees", [], |row| row.get(0))?;
-+    let total: u64 = conn.query_row("SELECT COUNT(*) FROM worktrees", [], |row| {
-+        let value: i64 = row.get(0)?;
-+        Ok(u64::try_from(value).unwrap_or_default())
-+    })?;
-     let alive: u64 = conn.query_row(
-         "SELECT COUNT(*) FROM worktrees WHERE status = 'alive'",
-         [],
--        |row| row.get(0),
-+        |row| {
-+            let value: i64 = row.get(0)?;
-+            Ok(u64::try_from(value).unwrap_or_default())
-+        },
-     )?;
-     let page_count: u64 = conn
--        .query_row("PRAGMA page_count", [], |row| row.get(0))
-+        .query_row("PRAGMA page_count", [], |row| {
-+            let value: i64 = row.get(0)?;
-+            Ok(u64::try_from(value).unwrap_or_default())
-+        })
-         .unwrap_or(0);
-     let page_size: u64 = conn
--        .query_row("PRAGMA page_size", [], |row| row.get(0))
-+        .query_row("PRAGMA page_size", [], |row| {
-+            let value: i64 = row.get(0)?;
-+            Ok(u64::try_from(value).unwrap_or_default())
-+        })
-         .unwrap_or(0);
- 
-     Ok(DbStats {
 
 diff --git a/crates/codegen/xai-grok-tools/src/implementations/read_file/pptx.rs b/crates/codegen/xai-grok-tools/src/implementations/read_file/pptx.rs
 --- a/crates/codegen/xai-grok-tools/src/implementations/read_file/pptx.rs
