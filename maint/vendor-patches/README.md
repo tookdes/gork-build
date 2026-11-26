@@ -25,7 +25,8 @@ floors can legitimately advance `aws-lc-sys` beyond the upstream lock.
 
 | Patch | Crate | Purpose |
 |-------|-------|---------|
-| `aws-lc-sys-0.45.0-skip-rndgetentcnt.patch` | aws-lc-sys 0.45.0 | Current 1.0.45/security-floor port: skip `RNDGETENTCNT` entropy wait in `ensure_dev_urandom_is_initialized` |
+| `aws-lc-sys-0.47.0-skip-rndgetentcnt.patch` | aws-lc-sys 0.47.0 | Current security-floor port: skip `RNDGETENTCNT` entropy wait in `ensure_dev_urandom_is_initialized` |
+| `aws-lc-sys-0.45.0-skip-rndgetentcnt.patch` | aws-lc-sys 0.45.0 | Retained fallback for the previous security floor |
 | `aws-lc-sys-0.39.1-skip-rndgetentcnt.patch` | aws-lc-sys 0.39.1 | Retained fallback for older upstream locks |
 | `nono-0.53.0-arm-sys-openat.patch` | nono 0.53.0 | Define `SYS_OPENAT` / `SYS_OPENAT2` for `target_arch = "arm"` |
 | `sqlite-vec-0.1.7-alpha.2-musl-uint-typedefs.patch` | sqlite-vec 0.1.7-alpha.2 | Disable BSD `u_int*_t` typedefs that break musl |

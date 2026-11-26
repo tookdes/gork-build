@@ -69,7 +69,11 @@ apply_one() {
 # rustls security floors can advance aws-lc-sys beyond upstream's original
 # lock. Carry the ancient-kernel entropy workaround across the known versions
 # and fail closed if neither supported crate is present.
-if find_crate_dir "aws-lc-sys-0.45.0" >/dev/null 2>&1; then
+if find_crate_dir "aws-lc-sys-0.47.0" >/dev/null 2>&1; then
+  apply_one "aws-lc-sys-0.47.0" \
+    "aws-lc-sys-0.47.0-skip-rndgetentcnt.patch" \
+    "Gork Build / ancient kernels"
+elif find_crate_dir "aws-lc-sys-0.45.0" >/dev/null 2>&1; then
   apply_one "aws-lc-sys-0.45.0" \
     "aws-lc-sys-0.45.0-skip-rndgetentcnt.patch" \
     "Gork Build / ancient kernels"
@@ -78,7 +82,7 @@ elif find_crate_dir "aws-lc-sys-0.39.1" >/dev/null 2>&1; then
     "aws-lc-sys-0.39.1-skip-rndgetentcnt.patch" \
     "Gork Build / ancient kernels"
 else
-  echo "error: no supported aws-lc-sys crate found (expected 0.45.0 or 0.39.1)" >&2
+  echo "error: no supported aws-lc-sys crate found (expected 0.47.0, 0.45.0, or 0.39.1)" >&2
   exit 1
 fi
 
