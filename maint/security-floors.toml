@@ -113,11 +113,13 @@ advisory = "RUSTSEC-2026-0367/0368/0369/0429/0545/0546/0547/0548"
 
 [[floor]]
 package = "zstd"
+from = "0.13.3"
 precise = "0.13.4"
 advisory = "RUSTSEC-2026-0391"
 
 [[floor]]
 package = "zstd-safe"
+from = "7.2.4"
 precise = "7.4.0"
 advisory = "RUSTSEC-2026-0395/0396/0397/0398/0399/0400/0401/0402/0403/0404/0405/0406"
 
