@@ -60,8 +60,8 @@ advisory = "RUSTSEC-2026-0459"
 
 [[floor]]
 package = "libz-sys"
-precise = "1.1.31"
-advisory = "RUSTSEC-2026-0418"
+precise = "1.1.33"
+advisory = "RUSTSEC-2026-0418/0544"
 
 [[floor]]
 package = "pulldown-cmark"
