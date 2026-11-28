@@ -73,7 +73,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-g
      /// Resume a session by ID or title, or the most recent if omitted.
      /// Non-ID values match session titles for the current directory, ignoring letter case; UUID-shaped values always mean IDs.
      /// Among duplicate titles a sole renamed match wins; otherwise the resume fails as ambiguous.
-@@ -1413,12 +1424,58 @@
+@@ -1413,12 +1424,51 @@
              })) if session_id == "sess-1"
          ));
      }
@@ -100,16 +100,9 @@ diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-g
 +    }
 +    #[test]
 +    fn headless_single_accepts_flags_after_prompt_words() {
-+        let args = PagerArgs::try_parse_from([
-+            "grok",
-+            "-p",
-+            "fix",
-+            "the",
-+            "bug",
-+            "--model",
-+            "grok-4.6",
-+        ])
-+        .expect("flags after -p prompt parse");
++        let args =
++            PagerArgs::try_parse_from(["grok", "-p", "fix", "the", "bug", "--model", "grok-4.6"])
++                .expect("flags after -p prompt parse");
 +        assert_eq!(
 +            args.single.as_deref().map(|words| words.join(" ")),
 +            Some("fix the bug".to_string())
@@ -275,7 +268,7 @@ diff --git a/crates/codegen/xai-grok-pager/src/headless.rs b/crates/codegen/xai-
 diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-grok-pager-bin/src/main.rs
 --- a/crates/codegen/xai-grok-pager-bin/src/main.rs
 +++ b/crates/codegen/xai-grok-pager-bin/src/main.rs
-@@ -2136,10 +2136,17 @@
+@@ -2136,10 +2136,18 @@
          xai_grok_pager::completions_cmd::run(*shell);
          return Ok(());
      }
@@ -289,15 +282,16 @@ diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-
 +    if args.command.is_none()
 +        && let Some(path) = args.system_prompt_file.as_deref()
 +    {
-+        args.system_prompt_override = Some(std::fs::read_to_string(path).map_err(|e| {
-+            anyhow::anyhow!("--system-prompt-file '{}': {e}", path.display())
-+        })?);
++        args.system_prompt_override = Some(
++            std::fs::read_to_string(path)
++                .map_err(|e| anyhow::anyhow!("--system-prompt-file '{}': {e}", path.display()))?,
++        );
 +    }
 +    let is_interactive = args.command.is_none()
          && args.single.is_none()
          && args.prompt_json.is_none()
          && args.prompt_file.is_none();
-@@ -2425,11 +2432,13 @@
+@@ -2425,11 +2433,12 @@
              }
          }
      }
@@ -306,8 +300,7 @@ diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-
 -        args.prompt_json.as_deref(),
 -        args.prompt_file.as_deref(),
 -    )?;
-+    let single_prompt =
-+        xai_grok_pager::headless::resolve_single_prompt(args.single.as_deref())?;
++    let single_prompt = xai_grok_pager::headless::resolve_single_prompt(args.single.as_deref())?;
 +    let headless_prompt = xai_grok_pager::headless::HeadlessPrompt::from_args(
 +        single_prompt.as_deref(),
 +        args.prompt_json.as_deref(),
