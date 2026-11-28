@@ -166,3 +166,11 @@ id = "security-dependency-refresh"
 file = "0084-security-dependency-refresh.patch"
 critical = true
 contracts = ["cargo-audit"]
+
+# Backport confirmed official stable 1.0.91-1.0.92 behavior that is absent
+# from the public 1.0.45 source mirror.
+[[patch]]
+id = "official-stable-cli-links-parity"
+file = "0085-official-stable-cli-links-parity.patch"
+critical = true
+contracts = []

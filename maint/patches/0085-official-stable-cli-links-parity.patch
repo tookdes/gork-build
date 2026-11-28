@@ -1,0 +1,530 @@
+diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
+--- a/crates/codegen/xai-grok-pager/src/app/cli.rs
++++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
+@@ -467,16 +467,18 @@
+         value_delimiter = ','
+     )]
+     pub deny_rules: Vec<String>,
+-    /// Single-turn prompt. Prints the response to stdout and exits.
+-    #[clap(
+-        short = 'p',
+-        long = "single",
+-        alias = "print",
+-        value_name = "PROMPT",
+-        conflicts_with_all = &["prompt_json",
+-        "prompt_file"]
+-    )]
+-    pub single: Option<String>,
++    /// Single-turn prompt. Prints the response to stdout and exits.
++    /// Extra words are joined with spaces; bare `-p` reads the prompt from stdin.
++    #[clap(
++        short = 'p',
++        long = "single",
++        alias = "print",
++        value_name = "PROMPT",
++        num_args = 0..,
++        conflicts_with_all = &["prompt_json",
++        "prompt_file"]
++    )]
++    pub single: Option<Vec<String>>,
+     /// Single-turn prompt as JSON content blocks.
+     #[clap(
+         long = "prompt-json",
+@@ -532,13 +534,22 @@
+     /// Only affects `--compaction-mode segments`. Sets `GROK_COMPACTION_DETAIL`.
+     #[clap(long = "compaction-detail", value_name = "DETAIL", hide = true)]
+     pub compaction_detail: Option<String>,
+-    /// Override the agent's system prompt (compat alias: --system-prompt).
+-    #[clap(
+-        long = "system-prompt-override",
+-        alias = "system-prompt",
+-        value_name = "PROMPT"
+-    )]
+-    pub system_prompt_override: Option<String>,
++    /// Override the agent's system prompt (compat alias: --system-prompt).
++    #[clap(
++        long = "system-prompt-override",
++        alias = "system-prompt",
++        value_name = "PROMPT",
++        conflicts_with = "system_prompt_file"
++    )]
++    pub system_prompt_override: Option<String>,
++    /// Override the agent's system prompt with the UTF-8 contents of a file.
++    #[clap(
++        long = "system-prompt-file",
++        value_name = "PATH",
++        value_hint = ValueHint::FilePath,
++        conflicts_with = "system_prompt_override"
++    )]
++    pub system_prompt_file: Option<PathBuf>,
+     /// Resume a session by ID or title, or the most recent if omitted.
+     /// Non-ID values match session titles for the current directory, ignoring letter case; UUID-shaped values always mean IDs.
+     /// Among duplicate titles a sole renamed match wins; otherwise the resume fails as ambiguous.
+@@ -1413,12 +1424,58 @@
+             })) if session_id == "sess-1"
+         ));
+     }
+-    #[test]
+-    fn positional_prompt_conflicts_with_headless_single() {
+-        let err = PagerArgs::try_parse_from(["grok", "-p", "headless", "interactive"])
+-            .expect_err("positional prompt + --single must conflict");
+-        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
+-    }
++    #[test]
++    fn headless_single_joins_extra_words() {
++        let args = PagerArgs::try_parse_from(["grok", "-p", "fix", "the", "bug"])
++            .expect("multi-word -p parses");
++        assert_eq!(
++            args.single.as_deref().map(|words| words.join(" ")),
++            Some("fix the bug".to_string())
++        );
++        assert!(args.prompt.is_none());
++    }
++    #[test]
++    fn bare_headless_single_is_present_with_no_words() {
++        let args = PagerArgs::try_parse_from(["grok", "-p"]).expect("bare -p parses");
++        assert!(args.single.as_ref().is_some_and(Vec::is_empty));
++    }
++    #[test]
++    fn headless_single_accepts_flags_after_prompt_words() {
++        let args = PagerArgs::try_parse_from([
++            "grok",
++            "-p",
++            "fix",
++            "the",
++            "bug",
++            "--model",
++            "grok-4.6",
++        ])
++        .expect("flags after -p prompt parse");
++        assert_eq!(
++            args.single.as_deref().map(|words| words.join(" ")),
++            Some("fix the bug".to_string())
++        );
++        assert_eq!(args.model.as_deref(), Some("grok-4.6"));
++    }
++    #[test]
++    fn system_prompt_file_parses_and_conflicts_with_inline_override() {
++        let args = PagerArgs::try_parse_from(["grok", "--system-prompt-file", "system.txt"])
++            .expect("--system-prompt-file parses");
++        assert_eq!(
++            args.system_prompt_file.as_deref(),
++            Some(std::path::Path::new("system.txt"))
++        );
++
++        let err = PagerArgs::try_parse_from([
++            "grok",
++            "--system-prompt-file",
++            "system.txt",
++            "--system-prompt",
++            "inline",
++        ])
++        .expect_err("file and inline system prompts conflict");
++        assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
++    }
+     #[test]
+     fn worktree_flag_and_initial_prompt_combine() {
+         let a = PagerArgs::try_parse_from(["grok", "do the thing", "-w"])
+diff --git a/crates/codegen/xai-grok-pager/src/headless/cli.rs b/crates/codegen/xai-grok-pager/src/headless/cli.rs
+--- a/crates/codegen/xai-grok-pager/src/headless/cli.rs
++++ b/crates/codegen/xai-grok-pager/src/headless/cli.rs
+@@ -1,6 +1,7 @@
+ //! Headless CLI parsing: output format, prompt sources, permission rules, and agent args.
+ 
+-use std::path::{Path, PathBuf};
++use std::io::Read as _;
++use std::path::{Path, PathBuf};
+ 
+ use agent_client_protocol as acp;
+ use clap::ValueEnum;
+@@ -18,14 +19,39 @@
+     StreamingMessagesJson,
+ }
+ 
+-pub fn parse_json_schema(input: &str) -> anyhow::Result<serde_json::Value> {
+-    let schema: serde_json::Value = serde_json::from_str(input)
+-        .map_err(|e| anyhow::anyhow!("--json-schema: invalid JSON: {e}"))?;
+-    if !schema.is_object() {
+-        anyhow::bail!("--json-schema: must be a JSON object describing a JSON Schema");
+-    }
+-    Ok(schema)
+-}
++pub fn parse_json_schema(input: &str) -> anyhow::Result<serde_json::Value> {
++    let schema: serde_json::Value = serde_json::from_str(input)
++        .map_err(|e| anyhow::anyhow!("--json-schema: invalid JSON: {e}"))?;
++    if !schema.is_object() {
++        anyhow::bail!("--json-schema: must be a JSON object describing a JSON Schema");
++    }
++    Ok(schema)
++}
++
++/// Resolve `-p/--single`: join explicit words, or read stdin when the flag is bare.
++pub fn resolve_single_prompt(single: Option<&[String]>) -> anyhow::Result<Option<String>> {
++    let stdin = std::io::stdin();
++    let mut stdin = stdin.lock();
++    resolve_single_prompt_with_reader(single, &mut stdin)
++}
++
++fn resolve_single_prompt_with_reader<R: std::io::Read>(
++    single: Option<&[String]>,
++    reader: &mut R,
++) -> anyhow::Result<Option<String>> {
++    let Some(words) = single else {
++        return Ok(None);
++    };
++    if !words.is_empty() {
++        return Ok(Some(words.join(" ")));
++    }
++
++    let mut prompt = String::new();
++    reader
++        .read_to_string(&mut prompt)
++        .map_err(|e| anyhow::anyhow!("--single: failed to read stdin: {e}"))?;
++    Ok(Some(prompt))
++}
+ 
+ #[derive(Debug, Clone)]
+ pub enum HeadlessPrompt {
+@@ -236,14 +262,47 @@
+     Ok(agents)
+ }
+ 
+-pub(crate) fn apply_agent_flag(
+-    agent: &Option<String>,
+-    config: &mut xai_grok_shell::agent::config::Config,
+-) {
+-    if let Some(agent) = agent {
+-        match resolve_agent_arg(agent) {
+-            ResolvedAgent::FilePath(path) => config.agent_profile_path = Some(path),
+-            ResolvedAgent::Name(name) => config.agent.name = Some(name),
+-        }
+-    }
+-}
++pub(crate) fn apply_agent_flag(
++    agent: &Option<String>,
++    config: &mut xai_grok_shell::agent::config::Config,
++) {
++    if let Some(agent) = agent {
++        match resolve_agent_arg(agent) {
++            ResolvedAgent::FilePath(path) => config.agent_profile_path = Some(path),
++            ResolvedAgent::Name(name) => config.agent.name = Some(name),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn single_prompt_joins_explicit_words_without_reading_input() {
++        let words = vec!["fix".to_string(), "the".to_string(), "bug".to_string()];
++        let mut input = std::io::Cursor::new(b"ignored stdin".as_slice());
++        let prompt = resolve_single_prompt_with_reader(Some(&words), &mut input).unwrap();
++        assert_eq!(prompt.as_deref(), Some("fix the bug"));
++        assert_eq!(input.position(), 0);
++    }
++
++    #[test]
++    fn bare_single_prompt_reads_stdin() {
++        let words = Vec::<String>::new();
++        let mut input = std::io::Cursor::new(b"prompt from stdin\n".as_slice());
++        let prompt = resolve_single_prompt_with_reader(Some(&words), &mut input).unwrap();
++        assert_eq!(prompt.as_deref(), Some("prompt from stdin\n"));
++    }
++
++    #[test]
++    fn absent_single_prompt_does_not_read_stdin() {
++        let mut input = std::io::Cursor::new(b"ignored stdin".as_slice());
++        assert!(
++            resolve_single_prompt_with_reader(None, &mut input)
++                .unwrap()
++                .is_none()
++        );
++        assert_eq!(input.position(), 0);
++    }
++}
+diff --git a/crates/codegen/xai-grok-pager/src/headless.rs b/crates/codegen/xai-grok-pager/src/headless.rs
+--- a/crates/codegen/xai-grok-pager/src/headless.rs
++++ b/crates/codegen/xai-grok-pager/src/headless.rs
+@@ -46,7 +46,10 @@
+ use prompt_ack::{abort_unacknowledged_prompt, headless_ack_signal};
+ use signals::HeadlessSignals;
+ mod cli;
+-pub use cli::{HeadlessPrompt, OutputFormat, parse_json_schema, parse_permission_rules_lenient};
++pub use cli::{
++    HeadlessPrompt, OutputFormat, parse_json_schema, parse_permission_rules_lenient,
++    resolve_single_prompt,
++};
+ pub(crate) use cli::{ResolvedAgent, resolve_agent_arg};
+ use cli::{apply_agent_flag, parse_cli_agents, parse_comma_list, parse_permission_rules_strict};
+ #[derive(Debug, Clone)]
+diff --git a/crates/codegen/xai-grok-pager-bin/src/main.rs b/crates/codegen/xai-grok-pager-bin/src/main.rs
+--- a/crates/codegen/xai-grok-pager-bin/src/main.rs
++++ b/crates/codegen/xai-grok-pager-bin/src/main.rs
+@@ -2136,10 +2136,17 @@
+         xai_grok_pager::completions_cmd::run(*shell);
+         return Ok(());
+     }
+-    if let Some(Command::Wrap(ref wrap_args)) = args.command {
+-        return xai_grok_pager::wrap_cmd::run(wrap_args);
+-    }
+-    let is_interactive = args.command.is_none()
++    if let Some(Command::Wrap(ref wrap_args)) = args.command {
++        return xai_grok_pager::wrap_cmd::run(wrap_args);
++    }
++    if args.command.is_none()
++        && let Some(path) = args.system_prompt_file.as_deref()
++    {
++        args.system_prompt_override = Some(std::fs::read_to_string(path).map_err(|e| {
++            anyhow::anyhow!("--system-prompt-file '{}': {e}", path.display())
++        })?);
++    }
++    let is_interactive = args.command.is_none()
+         && args.single.is_none()
+         && args.prompt_json.is_none()
+         && args.prompt_file.is_none();
+@@ -2425,11 +2432,13 @@
+             }
+         }
+     }
+-    let headless_prompt = xai_grok_pager::headless::HeadlessPrompt::from_args(
+-        args.single.as_deref(),
+-        args.prompt_json.as_deref(),
+-        args.prompt_file.as_deref(),
+-    )?;
++    let single_prompt =
++        xai_grok_pager::headless::resolve_single_prompt(args.single.as_deref())?;
++    let headless_prompt = xai_grok_pager::headless::HeadlessPrompt::from_args(
++        single_prompt.as_deref(),
++        args.prompt_json.as_deref(),
++        args.prompt_file.as_deref(),
++    )?;
+     if headless_prompt.is_some() || args.memory_flush {
+         if args.memory_flush
+             && headless_prompt.is_none()
+diff --git a/crates/codegen/xai-grok-pager-render/src/render/osc8.rs b/crates/codegen/xai-grok-pager-render/src/render/osc8.rs
+--- a/crates/codegen/xai-grok-pager-render/src/render/osc8.rs
++++ b/crates/codegen/xai-grok-pager-render/src/render/osc8.rs
+@@ -54,13 +54,16 @@
+     terminal: &crate::terminal::TerminalContext,
+ ) -> Option<ResolvedLinkTarget> {
+     match target {
+-        LinkTarget::Url(url) => {
+-            let filter = crate::terminal::hyperlinks::SchemeFilter::Standard;
+-            crate::link_opener::is_safe_to_open(url, filter).then(|| ResolvedLinkTarget {
+-                osc8_url: Some(Arc::clone(url)),
+-                open_target: Some(LinkTarget::Url(Arc::clone(url))),
+-            })
+-        }
++        LinkTarget::Url(url) => {
++            if let Some(file_target) = file_url_target(url) {
++                return resolve_link_target_for_context(&file_target, presentation, terminal);
++            }
++            let filter = crate::terminal::hyperlinks::SchemeFilter::Standard;
++            crate::link_opener::is_safe_to_open(url, filter).then(|| ResolvedLinkTarget {
++                osc8_url: Some(Arc::clone(url)),
++                open_target: Some(LinkTarget::Url(Arc::clone(url))),
++            })
++        }
+         LinkTarget::File(_)
+             if terminal.brand == crate::terminal::TerminalName::VsCode
+                 && terminal.is_official_vscode_remote
+@@ -254,11 +257,22 @@
+     tool_path_file_target(path, None)
+ }
+ 
+-fn file_path_to_url(path: &Path) -> Option<Arc<str>> {
+-    url::Url::from_file_path(path)
+-        .ok()
+-        .map(|u| Arc::from(u.as_str()))
+-}
++fn file_path_to_url(path: &Path) -> Option<Arc<str>> {
++    url::Url::from_file_path(path)
++        .ok()
++        .map(|u| Arc::from(u.as_str()))
++}
++
++fn file_url_target(url: &str) -> Option<LinkTarget> {
++    let parsed = url::Url::parse(url).ok()?;
++    if parsed.scheme() != "file" {
++        return None;
++    }
++    parsed
++        .to_file_path()
++        .ok()
++        .map(|path| LinkTarget::File(Arc::from(path)))
++}
+ 
+ #[cfg(test)]
+ fn tool_path_file_target_with_home(
+@@ -336,10 +350,16 @@
+     media_paths: &[PathBuf],
+     cwd: Option<&Path>,
+ ) -> Option<LinkTarget> {
+-    let dest = dest.trim();
+-    if dest.is_empty() || dest.starts_with('#') || dest.contains("://") {
+-        return None;
+-    }
++    let dest = dest.trim();
++    if dest.is_empty() || dest.starts_with('#') {
++        return None;
++    }
++    if let Some(file_target) = file_url_target(dest) {
++        return Some(file_target);
++    }
++    if dest.contains("://") {
++        return None;
++    }
+     let lower = dest.to_ascii_lowercase();
+     if lower.starts_with("mailto:") || lower.starts_with("tel:") {
+         return None;
+@@ -511,14 +531,18 @@
+         let Some(url) = linkify_href(text, &link) else {
+             continue;
+         };
+-        if !crate::link_opener::is_safe_to_open(&url, scheme_filter) {
+-            continue;
+-        }
+-        url_byte_ranges
+-            .get_or_insert_with(Vec::new)
+-            .push(link.start()..link.end());
+-
+-        let target = LinkTarget::Url(Arc::from(url.as_str()));
++        let target = if let Some(file_target) = file_url_target(&url) {
++            file_target
++        } else {
++            if !crate::link_opener::is_safe_to_open(&url, scheme_filter) {
++                continue;
++            }
++            LinkTarget::Url(Arc::from(url.as_str()))
++        };
++        url_byte_ranges
++            .get_or_insert_with(Vec::new)
++            .push(link.start()..link.end());
++
+         push_link_segments(
+             text,
+             rows,
+@@ -716,8 +740,36 @@
+         );
+     }
+ 
+-    #[test]
+-    fn local_link_ignores_web_anchor_and_unknown() {
++    #[test]
++    fn local_link_accepts_file_url_as_file_target() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("local file.txt");
++        std::fs::write(&path, b"x").unwrap();
++        let url = url::Url::from_file_path(&path).unwrap().to_string();
++
++        let target = local_link_to_file_target(&url, &[], None).expect("file target");
++        assert_eq!(target, LinkTarget::File(Arc::from(path.as_path())));
++    }
++
++    #[test]
++    fn scanner_links_file_urls_as_file_targets() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("scan.txt");
++        std::fs::write(&path, b"x").unwrap();
++        let url = url::Url::from_file_path(&path).unwrap().to_string();
++        let line = Line::from(url);
++
++        let mut overlay = LinkOverlay::new();
++        scan_unjoined(std::iter::once((3, &line)), 0, &[], &mut overlay);
++
++        assert_eq!(
++            nth_link(&overlay, 0).target,
++            LinkTarget::File(Arc::from(path.as_path()))
++        );
++    }
++
++    #[test]
++    fn local_link_ignores_web_anchor_and_unknown() {
+         let dir = tempfile::tempdir().unwrap();
+         std::fs::create_dir(dir.path().join("images")).unwrap();
+         std::fs::write(dir.path().join("images/1.jpg"), b"x").unwrap();
+@@ -800,8 +852,24 @@
+ 
+     // ── tool_path_file_target ──
+ 
+-    #[test]
+-    fn tool_path_file_target_resolves_relative_against_cwd() {
++    #[test]
++    fn file_url_resolves_like_a_bare_file_path() {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("local file.rs");
++        std::fs::write(&path, b"fn main() {}").unwrap();
++        let url = url::Url::from_file_path(&path).unwrap().to_string();
++
++        let resolved = resolve_link_target(&LinkTarget::Url(Arc::from(url.as_str())))
++            .expect("resolved file URL");
++        assert_eq!(
++            resolved.open_target,
++            Some(LinkTarget::File(Arc::from(path.as_path())))
++        );
++        assert_eq!(resolved.osc8_url.as_deref(), Some(url.as_str()));
++    }
++
++    #[test]
++    fn tool_path_file_target_resolves_relative_against_cwd() {
+         let cwd = Path::new("/Users/me/project");
+         let target = tool_path_file_target("src/main.rs", Some(cwd)).expect("target");
+         assert_eq!(
+diff --git a/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md b/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md
+--- a/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md
++++ b/crates/codegen/xai-grok-pager/docs/user-guide/14-headless-mode.md
+@@ -20,7 +20,7 @@
+ 
+ | Flag                    | Description                                           |
+ | ----------------------- | ----------------------------------------------------- |
+-| `-p, --single <PROMPT>` | The prompt to send (or use `--prompt-json` / `--prompt-file`) |
++| `-p, --single [PROMPT...]` | Prompt words to join and send; bare `-p` reads the prompt from stdin (or use `--prompt-json` / `--prompt-file`) |
+ | `-m, --model <MODEL>`   | Model to use (e.g., `grok-4.6`)              |
+ | `-s, --session-id <ID>` | Create a **new** session with this **UUID** (errors if invalid UUID or already in use under the target session directory; does not resume, use `-r`/`-c`) |
+ | `--fork-session`        | With `-r`/`-c`, fork into a new session ID instead of appending to the original |
+@@ -394,17 +394,18 @@
+ 
+ ### Standard Input
+ 
+-Headless mode does not read piped stdin into the prompt. Pass external content through command substitution or `--prompt-file`:
+-
+-```bash
+-# Include git diff as context via command substitution
+-grok -p "Write a concise commit message for these changes:
+-
+-$(git diff --staged)"
+-
+-# Or read the prompt from a file
+-grok --prompt-file ./prompt.txt
+-```
++A bare `-p` reads the prompt from stdin. When prompt words follow `-p`, Grok joins them with spaces; normal flags can still follow the prompt words.
++
++```bash
++# Read the whole prompt from stdin
++git diff --staged | grok -p
++
++# Extra words are joined, and flags can follow them
++grok -p explain this diff --output-format json
++
++# Or read the prompt from a file
++grok --prompt-file ./prompt.txt
++```
+ 
+ ---
+ 
+@@ -663,7 +664,8 @@
+ | ----------------------------- | ------------------------------------------------- |
+ | `--agent <NAME>`              | Agent name or definition file path                |
+ | `--agents <JSON>`             | Inline subagent definitions as JSON               |
+-| `--system-prompt-override`    | Override the agent's system prompt                |
++| `--system-prompt-override`    | Override the agent's system prompt                |
++| `--system-prompt-file <PATH>` | Load the system prompt override from a UTF-8 file |
+ | `--no-plan`                   | Disable plan mode                                 |
+ | `--no-subagents`              | Disable subagent spawning                         |
+ | `GROK_MEMORY=0`                | Disable cross-session memory for the process      |
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0

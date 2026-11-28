@@ -281,11 +281,17 @@ diff --git a/crates/codegen/xai-grok-tools/src/implementations/read_file/pptx.rs
 diff --git a/crates/codegen/xai-grok-update/src/windows_payload.rs b/crates/codegen/xai-grok-update/src/windows_payload.rs
 --- a/crates/codegen/xai-grok-update/src/windows_payload.rs
 +++ b/crates/codegen/xai-grok-update/src/windows_payload.rs
-@@ -149,29 +149,30 @@ pub(super) fn extract_zip(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
+@@ -149,29 +149,36 @@ pub(super) fn extract_zip(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
      let mut total: u64 = 0;
      for index in 0..archive.len() {
          let mut entry = archive.by_index(index).context("read zip entry")?;
 +        let entry_name = entry.name().context("decode zip entry name")?.into_owned();
++        if Path::new(&entry_name)
++            .components()
++            .any(|c| !matches!(c, Component::Normal(_)))
++        {
++            anyhow::bail!("archive entry escapes the destination: {entry_name}");
++        }
          let Some(relative) = entry.enclosed_name() else {
 -            anyhow::bail!("archive entry escapes the destination: {}", entry.name());
 +            anyhow::bail!("archive entry escapes the destination: {entry_name}");
