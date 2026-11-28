@@ -251,10 +251,23 @@ for setup, commit style, and PR expectations. Security reports: [`SECURITY.md`](
 
 ## Relationship to upstream
 
-Gork Build **tracks** [`xai-org/grok-build`](https://github.com/xai-org/grok-build).
-CI fetches a locked upstream SHA, applies `maint/patches/`, and publishes
-community binaries. When the series applies cleanly, a draft PR updates only
-the lock and patches — not a wholesale copy of the upstream tree.
+Gork Build tracks two upstream surfaces deliberately:
+
+- the **official stable Grok Build release channel** as the behavior/version
+  parity target;
+- [`xai-org/grok-build`](https://github.com/xai-org/grok-build) as the public
+  Rust source baseline used for reproducible source builds.
+
+Those surfaces can lag each other. CI reports that lag explicitly and does not
+treat an older public source version as the latest official release. Gork never
+claims a newer upstream version by changing metadata alone: the newer baseline
+must come from a published source sync or from explicit behavior backports with
+regression coverage.
+
+CI fetches the locked public-source SHA, applies `maint/patches/`, and
+publishes community binaries. When a newer source sync appears, the upgrade
+path remains `patchctl checkout -> roundtrip -> lint`, followed by the full
+seven-platform Actions build matrix.
 
 **Credit:** original Grok Build is developed and published by SpaceXAI under
 Apache-2.0. Gork Build is an independent community distribution and is **not**

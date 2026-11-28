@@ -28,13 +28,30 @@ jobs:
       remote_sha: ${{ steps.detect.outputs.remote_sha }}
       remote_version: ${{ steps.detect.outputs.remote_version }}
       remote_source_rev: ${{ steps.detect.outputs.remote_source_rev }}
+      official_stable: ${{ steps.official.outputs.stable }}
+      official_alpha: ${{ steps.official.outputs.alpha }}
+      source_lag: ${{ steps.baseline.outputs.source_lag }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Detect
+      - name: Detect official release channels
+        id: official
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAGS="$(npm view @xai-official/grok dist-tags --json)"
+          STABLE="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(x.latest || "")' "$TAGS")"
+          ALPHA="$(node -e 'const x=JSON.parse(process.argv[1]); process.stdout.write(x.alpha || "")' "$TAGS")"
+          test -n "$STABLE"
+          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
+          echo "alpha=$ALPHA" >> "$GITHUB_OUTPUT"
+          echo "official stable: $STABLE"
+          echo "official alpha: ${ALPHA:-unknown}"
+
+      - name: Detect public source mirror
         id: detect
         run: |
           set -euo pipefail
@@ -61,6 +78,29 @@ jobs:
           else
             echo "detect failed rc=$RC" >&2
             exit "$RC"
+          fi
+
+      - name: Compare release and source baselines
+        id: baseline
+        env:
+          SOURCE_VERSION: ${{ steps.detect.outputs.remote_version }}
+          OFFICIAL_STABLE: ${{ steps.official.outputs.stable }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          LAG=$(python3 - <<'PY'
+          import os, re
+          def parse(v):
+              m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", v or "")
+              return tuple(map(int, m.groups())) if m else None
+          source = parse(os.environ.get("SOURCE_VERSION"))
+          stable = parse(os.environ.get("OFFICIAL_STABLE"))
+          print("true" if source and stable and source < stable else "false")
+          PY
+          )
+          echo "source_lag=$LAG" >> "$GITHUB_OUTPUT"
+          if [[ "$LAG" == "true" ]]; then
+            echo "::warning title=Public source lags official stable::source=${SOURCE_VERSION} stable=${OFFICIAL_STABLE}"
           fi
 
   dispatch-replay:
@@ -90,3 +130,30 @@ jobs:
                 source_rev: sourceRev,
               },
             });
+
+  report-baseline:
+    name: Report official/source baseline
+    needs: detect
+    if: always() && needs.detect.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write upstream baseline summary
+        shell: bash
+        run: |
+          {
+            echo "## Upstream baseline"
+            echo
+            echo "| Surface | Version |"
+            echo "|---|---|"
+            echo "| Official stable (behavior target) | \`${{ needs.detect.outputs.official_stable }}\` |"
+            echo "| Official alpha | \`${{ needs.detect.outputs.official_alpha }}\` |"
+            echo "| Public source mirror (build base) | \`${{ needs.detect.outputs.remote_version }}\` |"
+            echo
+            echo "Public source SHA: \`${{ needs.detect.outputs.remote_sha }}\`"
+            echo
+            if [[ "${{ needs.detect.outputs.source_lag }}" == "true" ]]; then
+              echo "**Status: source lag.** Do not treat the public source version as the latest official release."
+            else
+              echo "**Status: official stable and public source are aligned.**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

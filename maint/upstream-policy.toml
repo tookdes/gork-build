@@ -1,0 +1,27 @@
+# Upstream tracking policy for Gork Build.
+schema = 1
+
+# Product behavior/version target.
+behavior_channel = "stable"
+official_package = "@xai-official/grok"
+official_changelog = "https://x.ai/changelog/build"
+
+# Rebuildable source baseline.
+source_repository = "https://github.com/xai-org/grok-build.git"
+
+# Never claim a newer official version merely by changing version metadata.
+version_claim_policy = "verified-source-or-behavior-parity"
+
+# Official binaries may be used as black-box behavior oracles in parity tests,
+# but are never repackaged as Gork builds.
+binary_oracle_policy = "behavior-tests-only"
+
+required_targets = [
+  "win32-x64",
+  "win32-arm64",
+  "linux-x64",
+  "linux-arm64",
+  "linux-armv7",
+  "darwin-x64",
+  "darwin-arm64",
+]
