@@ -1,3 +1,16 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 16:45:00 +0800
+Subject: [PATCH] official-stable-cli-links-parity: backport 1.0.91-1.0.92
+
+Backport official stable behavior missing from the public 1.0.45 source mirror:
+multi-word and stdin -p prompts, --system-prompt-file, and local file:// links
+that open through the same file target path as bare filesystem links.
+
+Gork-Patch-Id: official-stable-cli-links-parity
+Gork-Invariant: official-stable-cli-file-link-parity
+Gork-Risk: critical
+---
 diff --git a/crates/codegen/xai-grok-pager/src/app/cli.rs b/crates/codegen/xai-grok-pager/src/app/cli.rs
 --- a/crates/codegen/xai-grok-pager/src/app/cli.rs
 +++ b/crates/codegen/xai-grok-pager/src/app/cli.rs
