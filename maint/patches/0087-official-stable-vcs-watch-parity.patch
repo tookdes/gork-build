@@ -2661,10 +2661,10 @@ index f1c68b38bf64..575c5d81027d 100644
 +    }
 +}
 diff --git a/crates/codegen/xai-fsnotify/src/handle.rs b/crates/codegen/xai-fsnotify/src/handle.rs
-index 690678629f36..62042a5277d4 100644
+index 690678629f36..a6697848431d 100644
 --- a/crates/codegen/xai-fsnotify/src/handle.rs
 +++ b/crates/codegen/xai-fsnotify/src/handle.rs
-@@ -1,254 +1,307 @@
+@@ -1,254 +1,293 @@
 -//! The watcher's front door: config and strategy in, a running
 -//! [`FsNotifyHandle`] out. The thread it starts lives in [`crate::watcher`].
 -//!
@@ -3114,14 +3114,7 @@ index 690678629f36..62042a5277d4 100644
 +    strategy: WatchStrategy,
 +    init_timeout: Duration,
 +) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
-+    start_with_timeout_scope(
-+        watch_path,
-+        config,
-+        sapling,
-+        strategy,
-+        init_timeout,
-+        false,
-+    )
++    start_with_timeout_scope(watch_path, config, sapling, strategy, init_timeout, false)
 +}
 +
 +#[cfg(test)]
@@ -3132,14 +3125,7 @@ index 690678629f36..62042a5277d4 100644
 +    strategy: WatchStrategy,
 +    init_timeout: Duration,
 +) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
-+    start_with_timeout_scope(
-+        watch_path,
-+        config,
-+        sapling,
-+        strategy,
-+        init_timeout,
-+        true,
-+    )
++    start_with_timeout_scope(watch_path, config, sapling, strategy, init_timeout, true)
 +}
 +
 +fn start_with_timeout_scope(
