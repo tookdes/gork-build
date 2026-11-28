@@ -12,6 +12,7 @@ Gork-Invariant: branch-only-tracking-does-not-watch-workspace-tree
 Gork-Risk: critical
 ---
 diff --git a/crates/codegen/xai-fsnotify/src/lib.rs b/crates/codegen/xai-fsnotify/src/lib.rs
+index 8aa7ef7cf2d3..023cb6b12ad6 100644
 --- a/crates/codegen/xai-fsnotify/src/lib.rs
 +++ b/crates/codegen/xai-fsnotify/src/lib.rs
 @@ -24,6 +24,8 @@
@@ -25,6 +26,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/lib.rs b/crates/codegen/xai-fsnotif
  pub use source::{FsConfig, FsEventSource};
  pub use state::SETTLE_MS;
 diff --git a/crates/codegen/xai-fsnotify/src/source.rs b/crates/codegen/xai-fsnotify/src/source.rs
+index f1c68b38bf64..575c5d81027d 100644
 --- a/crates/codegen/xai-fsnotify/src/source.rs
 +++ b/crates/codegen/xai-fsnotify/src/source.rs
 @@ -57,11 +57,30 @@
@@ -77,6 +79,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/source.rs b/crates/codegen/xai-fsno
          let vcs = discover_vcs(&cwd, sapling);
          let cooldown = Duration::from_millis(COOLDOWN_MS);
 diff --git a/crates/codegen/xai-fsnotify/src/handle.rs b/crates/codegen/xai-fsnotify/src/handle.rs
+index 690678629f36..62042a5277d4 100644
 --- a/crates/codegen/xai-fsnotify/src/handle.rs
 +++ b/crates/codegen/xai-fsnotify/src/handle.rs
 @@ -155,28 +155,80 @@
@@ -199,6 +202,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/handle.rs b/crates/codegen/xai-fsno
          custom_ignore: Arc::new(custom_ignore),
          custom_include: Arc::new(custom_include),
 diff --git a/crates/codegen/xai-fsnotify/src/registry.rs b/crates/codegen/xai-fsnotify/src/registry.rs
+index 995f8e0dda7b..364aec800e92 100644
 --- a/crates/codegen/xai-fsnotify/src/registry.rs
 +++ b/crates/codegen/xai-fsnotify/src/registry.rs
 @@ -17,10 +17,14 @@
@@ -331,6 +335,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/registry.rs b/crates/codegen/xai-fs
      tracing::debug!(
          target: STATS_TARGET,
 diff --git a/crates/codegen/xai-fsnotify/src/watcher.rs b/crates/codegen/xai-fsnotify/src/watcher.rs
+index 4d90d4a619fc..183cfdf332a7 100644
 --- a/crates/codegen/xai-fsnotify/src/watcher.rs
 +++ b/crates/codegen/xai-fsnotify/src/watcher.rs
 @@ -32,10 +32,12 @@
@@ -507,6 +512,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/watcher.rs b/crates/codegen/xai-fsn
                  for path in &pruned {
                      if armed.watched.contains(path) {
 diff --git a/crates/codegen/xai-fsnotify/src/watcher_tests.rs b/crates/codegen/xai-fsnotify/src/watcher_tests.rs
+index 6d9f12b111d2..92bf1e566fec 100644
 --- a/crates/codegen/xai-fsnotify/src/watcher_tests.rs
 +++ b/crates/codegen/xai-fsnotify/src/watcher_tests.rs
 @@ -337,8 +337,60 @@
@@ -573,6 +579,7 @@ diff --git a/crates/codegen/xai-fsnotify/src/watcher_tests.rs b/crates/codegen/x
      #[serial]
      fn test_per_dir_watch_count_excludes_ignored_and_git_internals() {
 diff --git a/crates/codegen/xai-grok-shell/src/session/fs_watch.rs b/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
+index d45fc5c6db87..aa2c98161131 100644
 --- a/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
 +++ b/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
 @@ -836,8 +836,12 @@
