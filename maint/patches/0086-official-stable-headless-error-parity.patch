@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 17:00:00 +0800
+Subject: [PATCH] official-stable-headless-error-parity: retain partial reply
+
+Preserve reply text already received before a headless JSON error, matching the
+official stable 1.0.91 behavior while keeping the legacy error shape when no
+reply text exists.
+
+Gork-Patch-Id: official-stable-headless-error-parity
+Gork-Invariant: headless-json-errors-preserve-partial-reply
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-grok-pager/src/headless.rs b/crates/codegen/xai-grok-pager/src/headless.rs
+--- a/crates/codegen/xai-grok-pager/src/headless.rs
++++ b/crates/codegen/xai-grok-pager/src/headless.rs
+@@ -347,17 +347,29 @@
+             }
+         }
+     }
+-    /// Emit the terminal error; `stop_reason_override` stamps a Messages stop reason (e.g. `max_tokens`).
+-    fn on_error(&mut self, message: &str, stop_reason_override: Option<&str>) {
+-        match self.format {
+-            OutputFormat::Plain => eprint_line(message),
+-            OutputFormat::Json => {
+-                let mut err = serde_json::json!({"type":"error","message": message});
+-                if let Some(usage) = &self.usage {
+-                    attach_result_usage(&mut err, usage);
+-                }
+-                self.emit_line(&err);
+-            }
++    fn build_json_error(&self, message: &str) -> serde_json::Value {
++        let mut err = serde_json::json!({"type":"error","message": message});
++        if !self.text_buffer.is_empty()
++            && let Some(obj) = err.as_object_mut()
++        {
++            obj.insert(
++                "text".into(),
++                serde_json::Value::String(self.text_buffer.clone()),
++            );
++        }
++        if let Some(usage) = &self.usage {
++            attach_result_usage(&mut err, usage);
++        }
++        err
++    }
++    /// Emit the terminal error; `stop_reason_override` stamps a Messages stop reason (e.g. `max_tokens`).
++    fn on_error(&mut self, message: &str, stop_reason_override: Option<&str>) {
++        match self.format {
++            OutputFormat::Plain => eprint_line(message),
++            OutputFormat::Json => {
++                let err = self.build_json_error(message);
++                self.emit_line(&err);
++            }
+             OutputFormat::StreamingJson | OutputFormat::StreamingMessagesJson => {
+                 let usage = self.usage.clone();
+                 let duration_ms = self.duration_ms();
+diff --git a/crates/codegen/xai-grok-pager/src/headless_tests.rs b/crates/codegen/xai-grok-pager/src/headless_tests.rs
+--- a/crates/codegen/xai-grok-pager/src/headless_tests.rs
++++ b/crates/codegen/xai-grok-pager/src/headless_tests.rs
+@@ -658,8 +658,33 @@
+     assert_eq!(rule.pattern.as_deref(), Some("sed"));
+ }
+ 
+-#[test]
+-fn structured_output_without_meta_errors_never_parses_text() {
++#[test]
++fn json_error_preserves_reply_text_already_received() {
++    let mut emitter = HeadlessEmitter::new(OutputFormat::Json, false);
++    emitter.on_text_chunk("partial ");
++    emitter.on_text_chunk("reply");
++
++    let err = emitter.build_json_error("connection lost");
++    assert_eq!(err.get("type").and_then(|v| v.as_str()), Some("error"));
++    assert_eq!(
++        err.get("message").and_then(|v| v.as_str()),
++        Some("connection lost")
++    );
++    assert_eq!(
++        err.get("text").and_then(|v| v.as_str()),
++        Some("partial reply")
++    );
++}
++
++#[test]
++fn json_error_without_reply_keeps_text_absent() {
++    let emitter = HeadlessEmitter::new(OutputFormat::Json, false);
++    let err = emitter.build_json_error("connection lost");
++    assert!(err.get("text").is_none());
++}
++
++#[test]
++fn structured_output_without_meta_errors_never_parses_text() {
+     let mut emitter = HeadlessEmitter::new(OutputFormat::Json, true);
+     emitter.text_buffer = r#"{"name":"alice","age":30}"#.into();
+     emitter.set_structured_output_from_meta(serde_json::json!({}).as_object());
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0

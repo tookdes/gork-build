@@ -23,3 +23,4 @@
 0083-rustfmt-sync.patch
 0084-security-dependency-refresh.patch
 0085-official-stable-cli-links-parity.patch
+0086-official-stable-headless-error-parity.patch

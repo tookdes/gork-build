@@ -174,3 +174,10 @@ id = "official-stable-cli-links-parity"
 file = "0085-official-stable-cli-links-parity.patch"
 critical = true
 contracts = []
+
+# Backport official stable 1.0.91 headless JSON error semantics.
+[[patch]]
+id = "official-stable-headless-error-parity"
+file = "0086-official-stable-headless-error-parity.patch"
+critical = true
+contracts = []
