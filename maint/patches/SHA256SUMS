@@ -23,3 +23,4 @@ c808b17e4106ff3f133628fa303c323bf63d102458c104e6fdb53122aa7743be  0081-package-p
 60447d9bcd440bdd9139c922df0915cb66c4b92e7a61d04e1f8ff6a6609fee96  0084-security-dependency-refresh.patch
 815e97c7a2681a146f6d5ecd7d8d14480022637f2a8c4b841ee230236fcd3cc7  0085-official-stable-cli-links-parity.patch
 350080611f1eb9ee2a53c10c351be4ffe6110bf894239330fa8ab3cbceb8a48f  0086-official-stable-headless-error-parity.patch
+5771e79be7055e1a027193dff40bab561d602eba3e1329db88f1bf400e0361c6  0087-official-stable-vcs-watch-parity.patch

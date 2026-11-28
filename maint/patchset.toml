@@ -181,3 +181,10 @@ id = "official-stable-headless-error-parity"
 file = "0086-official-stable-headless-error-parity.patch"
 critical = true
 contracts = []
+
+# Backport official stable 1.0.92 branch-watcher scope optimization.
+[[patch]]
+id = "official-stable-vcs-watch-parity"
+file = "0087-official-stable-vcs-watch-parity.patch"
+critical = true
+contracts = []

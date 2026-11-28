@@ -1,0 +1,630 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gork CI <gork-ci@users.noreply.github.com>
+Date: Sat, 28 Nov 2026 17:15:00 +0800
+Subject: [PATCH] official-stable-vcs-watch-parity: avoid workspace-wide branch watches
+
+When current git branch / HEAD tracking is the only filesystem consumer, arm
+only the governing VCS metadata instead of recursively watching the workspace.
+Keep the existing git-lock state machine and HEAD-change debounce semantics.
+
+Gork-Patch-Id: official-stable-vcs-watch-parity
+Gork-Invariant: branch-only-tracking-does-not-watch-workspace-tree
+Gork-Risk: critical
+---
+diff --git a/crates/codegen/xai-fsnotify/src/lib.rs b/crates/codegen/xai-fsnotify/src/lib.rs
+--- a/crates/codegen/xai-fsnotify/src/lib.rs
++++ b/crates/codegen/xai-fsnotify/src/lib.rs
+@@ -24,6 +24,8 @@
+ pub use checkout::watch_root_covers;
+ pub use error::FsNotifyError;
+ pub use event::{FsEvent, FsEventKind, GitMetaKind};
+-pub use registry::{FsWatcherStats, STATS_TARGET, set_runtime_handle, shared, stats};
++pub use registry::{
++    FsWatcherStats, STATS_TARGET, set_runtime_handle, shared, shared_vcs_only, stats,
++};
+ pub use source::{FsConfig, FsEventSource};
+ pub use state::SETTLE_MS;
+diff --git a/crates/codegen/xai-fsnotify/src/source.rs b/crates/codegen/xai-fsnotify/src/source.rs
+--- a/crates/codegen/xai-fsnotify/src/source.rs
++++ b/crates/codegen/xai-fsnotify/src/source.rs
+@@ -57,11 +57,30 @@
+     /// Like [`start`](Self::start) but runs the event loop on `handle` instead
+     /// of the current runtime. Used by [`crate::shared`] so the loop lives on a
+     /// process-lifetime runtime rather than a short-lived per-session one.
+-    pub fn start_on(handle: Handle, cwd: PathBuf, config: FsConfig) -> Result<Self, FsNotifyError> {
+-        let raw_config = RawFsConfig {
+-            debounce_ms: config.debounce_ms,
+-            ignore_patterns: config.ignore_patterns,
+-        };
++    pub fn start_on(handle: Handle, cwd: PathBuf, config: FsConfig) -> Result<Self, FsNotifyError> {
++        Self::start_on_with_scope(handle, cwd, config, false)
++    }
++
++    /// Like [`start_on`](Self::start_on), but arms only the governing VCS
++    /// metadata. Used when the sole consumer needs current branch / HEAD state.
++    pub(crate) fn start_on_vcs_only(
++        handle: Handle,
++        cwd: PathBuf,
++        config: FsConfig,
++    ) -> Result<Self, FsNotifyError> {
++        Self::start_on_with_scope(handle, cwd, config, true)
++    }
++
++    fn start_on_with_scope(
++        handle: Handle,
++        cwd: PathBuf,
++        config: FsConfig,
++        vcs_only: bool,
++    ) -> Result<Self, FsNotifyError> {
++        let raw_config = RawFsConfig {
++            debounce_ms: config.debounce_ms,
++            ignore_patterns: config.ignore_patterns,
++        };
+         // Canonicalize once so discovery and the watcher resolve `.git`/`.sl` from the same root.
+         // A raw symlinked `cwd` could miss `.sl` while the watcher still attaches `wlock`, leaking `.sl/*`.
+         // Falls back to the raw path if `cwd` does not exist yet.
+@@ -69,7 +88,11 @@
+         // Resolve the Sapling kill-switch once so discovery and the watcher
+         // agree on whether `.sl` is active.
+         let sapling = sapling_enabled();
+-        let (raw_rx, watcher_handle) = handle::start(cwd.clone(), raw_config, sapling)?;
++        let (raw_rx, watcher_handle) = if vcs_only {
++            handle::start_vcs_only(cwd.clone(), raw_config, sapling)?
++        } else {
++            handle::start(cwd.clone(), raw_config, sapling)?
++        };
+ 
+         let vcs = discover_vcs(&cwd, sapling);
+         let cooldown = Duration::from_millis(COOLDOWN_MS);
+diff --git a/crates/codegen/xai-fsnotify/src/handle.rs b/crates/codegen/xai-fsnotify/src/handle.rs
+--- a/crates/codegen/xai-fsnotify/src/handle.rs
++++ b/crates/codegen/xai-fsnotify/src/handle.rs
+@@ -155,28 +155,80 @@
+     }
+ }
+ 
+-pub(crate) fn start(
+-    watch_path: std::path::PathBuf,
+-    config: FsNotifyConfig,
+-    sapling: bool,
+-) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
+-    start_with_timeout(
+-        watch_path,
+-        config,
+-        sapling,
+-        watch_strategy(),
+-        Duration::from_secs(WATCHER_INIT_TIMEOUT_SECS),
+-    )
+-}
+-
+-/// Start with an explicit timeout and strategy, which tests pass directly.
+-pub(crate) fn start_with_timeout(
+-    watch_path: std::path::PathBuf,
+-    config: FsNotifyConfig,
+-    sapling: bool,
+-    strategy: WatchStrategy,
+-    init_timeout: Duration,
+-) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
++pub(crate) fn start(
++    watch_path: std::path::PathBuf,
++    config: FsNotifyConfig,
++    sapling: bool,
++) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
++    start_with_timeout_scope(
++        watch_path,
++        config,
++        sapling,
++        watch_strategy(),
++        Duration::from_secs(WATCHER_INIT_TIMEOUT_SECS),
++        false,
++    )
++}
++
++pub(crate) fn start_vcs_only(
++    watch_path: std::path::PathBuf,
++    config: FsNotifyConfig,
++    sapling: bool,
++) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
++    start_with_timeout_scope(
++        watch_path,
++        config,
++        sapling,
++        watch_strategy(),
++        Duration::from_secs(WATCHER_INIT_TIMEOUT_SECS),
++        true,
++    )
++}
++
++/// Start with an explicit timeout and strategy, which tests pass directly.
++pub(crate) fn start_with_timeout(
++    watch_path: std::path::PathBuf,
++    config: FsNotifyConfig,
++    sapling: bool,
++    strategy: WatchStrategy,
++    init_timeout: Duration,
++) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
++    start_with_timeout_scope(
++        watch_path,
++        config,
++        sapling,
++        strategy,
++        init_timeout,
++        false,
++    )
++}
++
++#[cfg(test)]
++pub(crate) fn start_vcs_only_with_timeout(
++    watch_path: std::path::PathBuf,
++    config: FsNotifyConfig,
++    sapling: bool,
++    strategy: WatchStrategy,
++    init_timeout: Duration,
++) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
++    start_with_timeout_scope(
++        watch_path,
++        config,
++        sapling,
++        strategy,
++        init_timeout,
++        true,
++    )
++}
++
++fn start_with_timeout_scope(
++    watch_path: std::path::PathBuf,
++    config: FsNotifyConfig,
++    sapling: bool,
++    strategy: WatchStrategy,
++    init_timeout: Duration,
++    vcs_only: bool,
++) -> Result<(mpsc::UnboundedReceiver<RawFsEvent>, FsNotifyHandle), crate::FsNotifyError> {
+     let watch_path = dunce::canonicalize(&watch_path).unwrap_or(watch_path);
+     tracing::debug!("fs_notify: starting watcher under {watch_path:?}");
+ 
+@@ -189,10 +241,11 @@
+     let watch_count = Arc::new(AtomicUsize::new(0));
+     let progress = Arc::new(Mutex::new(StartProgress::new()));
+ 
+-    let watcher = Watcher {
+-        root: watch_path,
+-        strategy,
+-        sapling,
++    let watcher = Watcher {
++        root: watch_path,
++        strategy,
++        sapling,
++        vcs_only,
+         debounce: Duration::from_millis(config.debounce_ms),
+         custom_ignore: Arc::new(custom_ignore),
+         custom_include: Arc::new(custom_include),
+diff --git a/crates/codegen/xai-fsnotify/src/registry.rs b/crates/codegen/xai-fsnotify/src/registry.rs
+--- a/crates/codegen/xai-fsnotify/src/registry.rs
++++ b/crates/codegen/xai-fsnotify/src/registry.rs
+@@ -17,10 +17,14 @@
+ /// [`set_runtime_handle`] registers a process-lifetime runtime.
+ static RUNTIME_HANDLE: OnceLock<Handle> = OnceLock::new();
+ 
+-/// Process-wide registry of shared sources keyed by canonical watch path.
+-/// Holds [`Weak`] refs so a watcher is torn down once its last subscriber
+-/// (the last [`Arc`] returned by [`shared`]) is dropped.
+-static REGISTRY: OnceLock<Mutex<HashMap<PathBuf, Weak<FsEventSource>>>> = OnceLock::new();
++/// Process-wide registry of full-workspace sources keyed by canonical watch path.
++/// Holds [`Weak`] refs so a watcher is torn down once its last subscriber
++/// (the last [`Arc`] returned by [`shared`]) is dropped.
++static REGISTRY: OnceLock<Mutex<HashMap<PathBuf, Weak<FsEventSource>>>> = OnceLock::new();
++
++/// VCS-only sources are kept separate: a later full-workspace subscriber must
++/// never accidentally reuse a source that watches only git metadata.
++static VCS_ONLY_REGISTRY: OnceLock<Mutex<HashMap<PathBuf, Weak<FsEventSource>>>> = OnceLock::new();
+ 
+ /// Monotonic count of OS watchers actually created by [`shared`] (cache miss).
+ static WATCHERS_CREATED: AtomicU64 = AtomicU64::new(0);
+@@ -35,8 +39,9 @@
+ /// Snapshot of the shared-watcher registry. Use [`stats`] to read it.
+ #[derive(Debug, Clone, Copy, serde::Serialize)]
+ pub struct FsWatcherStats {
+-    /// Distinct directories backed by a live OS watcher right now.
+-    pub live_watchers: usize,
++    /// Live OS watcher sources right now. One directory can have both a
++    /// full-workspace source and a lightweight VCS-only source.
++    pub live_watchers: usize,
+     /// Process-lifetime count of OS watchers created (cache misses).
+     pub created_total: u64,
+     /// Process-lifetime count of reuses (cache hits) — i.e. OS watchers that
+@@ -44,14 +49,22 @@
+     pub reused_total: u64,
+ }
+ 
+-/// Snapshot shared-watcher stats. Prunes dead registry entries first.
+-/// `reused_total` should grow with session count while `live_watchers` stays bounded by distinct directories.
+-pub fn stats() -> FsWatcherStats {
+-    let live = {
+-        let mut map = registry().lock().unwrap_or_else(PoisonError::into_inner);
+-        map.retain(|_, w| w.strong_count() > 0);
+-        map.len()
+-    };
++/// Snapshot shared-watcher stats. Prunes dead registry entries first.
++/// `reused_total` should grow with session count while `live_watchers` stays
++/// bounded by active full-workspace / VCS-only source configurations.
++pub fn stats() -> FsWatcherStats {
++    let live = {
++        let mut map = registry().lock().unwrap_or_else(PoisonError::into_inner);
++        map.retain(|_, w| w.strong_count() > 0);
++        let full = map.len();
++        drop(map);
++
++        let mut map = vcs_only_registry()
++            .lock()
++            .unwrap_or_else(PoisonError::into_inner);
++        map.retain(|_, w| w.strong_count() > 0);
++        full + map.len()
++    };
+     FsWatcherStats {
+         live_watchers: live,
+         created_total: WATCHERS_CREATED.load(Ordering::Relaxed),
+@@ -66,9 +79,13 @@
+     let _ = RUNTIME_HANDLE.set(handle);
+ }
+ 
+-fn registry() -> &'static Mutex<HashMap<PathBuf, Weak<FsEventSource>>> {
+-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+-}
++fn registry() -> &'static Mutex<HashMap<PathBuf, Weak<FsEventSource>>> {
++    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
++}
++
++fn vcs_only_registry() -> &'static Mutex<HashMap<PathBuf, Weak<FsEventSource>>> {
++    VCS_ONLY_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
++}
+ 
+ /// Canonicalize so symlinked / relative spellings of the same directory map
+ /// to one watcher. Falls back to the raw path if the dir doesn't exist yet.
+@@ -120,7 +137,48 @@
+     Ok(source)
+ }
+ 
+-fn record_reuse(key: &Path, live_watchers: usize) {
++/// Get a shared source that watches only governing VCS metadata. This is safe
++/// for current-branch / HEAD tracking but must not serve workspace-file consumers.
++#[tracing::instrument(name = "fsnotify.vcs_only_watcher_install", skip_all)]
++pub fn shared_vcs_only(
++    cwd: PathBuf,
++    config: FsConfig,
++) -> Result<Arc<FsEventSource>, FsNotifyError> {
++    let key = canonical_key(&cwd);
++
++    {
++        let mut map = vcs_only_registry()
++            .lock()
++            .unwrap_or_else(PoisonError::into_inner);
++        map.retain(|_, w| w.strong_count() > 0);
++        if let Some(existing) = map.get(&key).and_then(Weak::upgrade) {
++            drop(map);
++            let live_watchers = stats().live_watchers;
++            record_reuse(&key, live_watchers);
++            return Ok(existing);
++        }
++    }
++
++    let handle = event_loop_handle()?;
++    let source = Arc::new(FsEventSource::start_on_vcs_only(handle, cwd, config)?);
++
++    let mut map = vcs_only_registry()
++        .lock()
++        .unwrap_or_else(PoisonError::into_inner);
++    if let Some(existing) = map.get(&key).and_then(Weak::upgrade) {
++        drop(map);
++        let live_watchers = stats().live_watchers;
++        record_reuse(&key, live_watchers);
++        return Ok(existing);
++    }
++    map.insert(key.clone(), Arc::downgrade(&source));
++    drop(map);
++    let live_watchers = stats().live_watchers;
++    record_create(&key, live_watchers);
++    Ok(source)
++}
++
++fn record_reuse(key: &Path, live_watchers: usize) {
+     let reused_total = WATCHERS_REUSED.fetch_add(1, Ordering::Relaxed) + 1;
+     tracing::debug!(
+         target: STATS_TARGET,
+diff --git a/crates/codegen/xai-fsnotify/src/watcher.rs b/crates/codegen/xai-fsnotify/src/watcher.rs
+--- a/crates/codegen/xai-fsnotify/src/watcher.rs
++++ b/crates/codegen/xai-fsnotify/src/watcher.rs
+@@ -32,10 +32,12 @@
+ type Ready = std::sync::mpsc::Sender<Result<(), Box<dyn Error + Send + Sync>>>;
+ 
+ /// What the thread needs and never changes while it runs.
+-pub(crate) struct Watcher {
+-    pub root: PathBuf,
+-    pub strategy: WatchStrategy,
+-    pub sapling: bool,
++pub(crate) struct Watcher {
++    pub root: PathBuf,
++    pub strategy: WatchStrategy,
++    pub sapling: bool,
++    /// Only arm VCS metadata paths; do not watch the workspace tree.
++    pub vcs_only: bool,
+     pub debounce: Duration,
+     pub custom_ignore: Arc<Option<GlobSet>>,
+     pub custom_include: Arc<Option<GlobSet>>,
+@@ -47,12 +49,13 @@
+ }
+ 
+ /// The watch set, once startup arming is done.
+-struct Armed {
+-    pending: VecDeque<PathBuf>,
+-    watched: HashSet<PathBuf>,
+-    vcs: usize,
+-    child_mode: RecursiveMode,
+-    root_non_recursive: bool,
++struct Armed {
++    pending: VecDeque<PathBuf>,
++    watched: HashSet<PathBuf>,
++    vcs: usize,
++    child_mode: RecursiveMode,
++    root_non_recursive: bool,
++    root_watched: bool,
+     git_dir: Option<PathBuf>,
+     sl_dir: Option<PathBuf>,
+ }
+@@ -68,10 +71,12 @@
+         }
+     }
+ 
+-    fn publish_count(&self, armed: &Armed) {
+-        self.watch_count
+-            .store(1 + armed.watched.len() + armed.vcs, Ordering::Relaxed);
+-    }
++    fn publish_count(&self, armed: &Armed) {
++        self.watch_count.store(
++            usize::from(armed.root_watched) + armed.watched.len() + armed.vcs,
++            Ordering::Relaxed,
++        );
++    }
+ 
+     pub(crate) fn run(self, cmd_rx: std::sync::mpsc::Receiver<WatchCommand>, ready_tx: Ready) {
+         self.stage("watcher_thread_started");
+@@ -126,8 +131,9 @@
+     /// change was structural enough to alter the watch set.
+     fn event_sink(&self) -> impl FnMut(DebounceEventResult) + Send + 'static {
+         let root = self.root.clone();
+-        let strategy = self.strategy;
+-        let sapling = self.sapling;
++        let strategy = self.strategy;
++        let sapling = self.sapling;
++        let vcs_only = self.vcs_only;
+         let custom_ignore = Arc::clone(&self.custom_ignore);
+         let custom_include = Arc::clone(&self.custom_include);
+         let events = self.events.clone();
+@@ -166,14 +172,17 @@
+                 if event.paths.is_empty() {
+                     continue;
+                 }
+-                match strategy {
+-                    WatchStrategy::Fanout => {
+-                        needs_reconcile |= event_triggers_reconcile(event.kind, &event.paths, &root)
+-                    }
+-                    WatchStrategy::PerDir => {
+-                        scan_per_dir_updates(event.kind, &event.paths, &mut pruned, &mut added)
+-                    }
+-                }
++                if !vcs_only {
++                    match strategy {
++                        WatchStrategy::Fanout => {
++                            needs_reconcile |=
++                                event_triggers_reconcile(event.kind, &event.paths, &root)
++                        }
++                        WatchStrategy::PerDir => {
++                            scan_per_dir_updates(event.kind, &event.paths, &mut pruned, &mut added)
++                        }
++                    }
++                }
+                 let _ = events.send(event);
+             }
+ 
+@@ -188,8 +197,23 @@
+ 
+     /// Arms the root, the directories selection chose, and the VCS metadata the
+     /// root watch does not already cover. Only the root failing is fatal.
+-    fn arm(&self, debouncer: &mut Watches) -> Result<Armed, notify::Error> {
+-        let budget = self.budget;
++    fn arm(&self, debouncer: &mut Watches) -> Result<Armed, notify::Error> {
++        if self.vcs_only {
++            let mut armed = Armed {
++                pending: VecDeque::new(),
++                watched: HashSet::new(),
++                vcs: 0,
++                child_mode: RecursiveMode::NonRecursive,
++                root_non_recursive: true,
++                root_watched: false,
++                git_dir: find_git_dir(&self.root),
++                sl_dir: self.sapling.then(|| find_sl_dir(&self.root)).flatten(),
++            };
++            self.arm_vcs(debouncer, &mut armed);
++            return Ok(armed);
++        }
++
++        let budget = self.budget;
+         let initial = match self.strategy {
+             WatchStrategy::PerDir => {
+                 let mut dirs = select_per_dir_watch_dirs(
+@@ -254,13 +278,14 @@
+             }
+         }
+ 
+-        let mut armed = Armed {
+-            pending,
+-            watched,
+-            vcs: 0,
+-            child_mode,
+-            root_non_recursive,
+-            git_dir: find_git_dir(&self.root),
++        let mut armed = Armed {
++            pending,
++            watched,
++            vcs: 0,
++            child_mode,
++            root_non_recursive,
++            root_watched: true,
++            git_dir: find_git_dir(&self.root),
+             sl_dir: self.sapling.then(|| find_sl_dir(&self.root)).flatten(),
+         };
+         self.arm_vcs(debouncer, &mut armed);
+@@ -287,9 +312,9 @@
+         };
+ 
+         if let Some(git_dir) = git_dir.as_ref().filter(|dir| separate(dir)) {
+-            let watches = if self.per_dir() {
+-                per_dir_git_watches(git_dir)
+-            } else {
++            let watches = if self.per_dir() || self.vcs_only {
++                per_dir_git_watches(git_dir)
++            } else {
+                 vec![(git_dir.clone(), RecursiveMode::Recursive)]
+             };
+             for (path, mode) in watches {
+@@ -362,8 +387,8 @@
+         armed: &mut Armed,
+     ) -> ControlFlow<()> {
+         match cmd {
+-            WatchCommand::Reconcile => {
+-                if !self.per_dir() && armed.root_non_recursive {
++            WatchCommand::Reconcile => {
++                if !self.vcs_only && !self.per_dir() && armed.root_non_recursive {
+                     reconcile_top_level_watches(
+                         debouncer,
+                         &mut armed.watched,
+@@ -373,7 +398,7 @@
+                     );
+                 }
+             }
+-            WatchCommand::Update { pruned, added } if self.per_dir() => {
++            WatchCommand::Update { pruned, added } if self.per_dir() && !self.vcs_only => {
+                 // Prune-before-add ordering: see [`WatchCommand::Update`].
+                 for path in &pruned {
+                     if armed.watched.contains(path) {
+diff --git a/crates/codegen/xai-fsnotify/src/watcher_tests.rs b/crates/codegen/xai-fsnotify/src/watcher_tests.rs
+--- a/crates/codegen/xai-fsnotify/src/watcher_tests.rs
++++ b/crates/codegen/xai-fsnotify/src/watcher_tests.rs
+@@ -337,8 +337,60 @@
+         );
+     }
+ 
+-    /// Watch-count accounting: nested gitignored dirs cost zero watches
+-    /// and `.git` costs a handful, not one per internal dir.
++    /// A VCS-only source watches git metadata but not workspace directories.
++    #[test]
++    #[serial]
++    fn vcs_only_ignores_workspace_tree_and_keeps_head_events() {
++        let temp = TempDir::new().unwrap();
++        let root = dunce::canonicalize(temp.path()).unwrap();
++        fs::create_dir_all(root.join(".git/refs/heads")).unwrap();
++        fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
++        fs::write(root.join(".git/refs/heads/main"), "abc123\n").unwrap();
++        for i in 0..20 {
++            fs::create_dir_all(root.join(format!("src/deep/{i}"))).unwrap();
++        }
++
++        let (mut rx, handle) = start_vcs_only_with_timeout(
++            root.clone(),
++            FsNotifyConfig {
++                debounce_ms: TEST_DEBOUNCE_MS,
++                ignore_patterns: vec![],
++            },
++            true,
++            WatchStrategy::PerDir,
++            TEST_INIT_TIMEOUT,
++        )
++        .unwrap();
++
++        assert_eq!(
++            handle.watch_count(),
++            3,
++            "VCS-only mode should arm only .git, refs, and refs/heads"
++        );
++
++        fs::write(root.join("src/deep/0/workspace.txt"), "ignored").unwrap();
++        let workspace_events = collect_events(&mut rx);
++        assert!(
++            workspace_events.is_empty(),
++            "workspace writes must not reach a VCS-only watcher: {workspace_events:?}"
++        );
++
++        fs::write(root.join(".git/HEAD"), "ref: refs/heads/other\n").unwrap();
++        let git_events = collect_events_smart(
++            &mut rx,
++            Duration::from_millis(EVENT_WAIT_MS * 2),
++            Duration::from_millis(50),
++        );
++        assert!(
++            git_events
++                .iter()
++                .any(|event| event.paths.iter().any(|path| path.ends_with(".git/HEAD"))),
++            "HEAD writes must still reach the VCS-only watcher: {git_events:?}"
++        );
++    }
++
++    /// Watch-count accounting: nested gitignored dirs cost zero watches
++    /// and `.git` costs a handful, not one per internal dir.
+     #[test]
+     #[serial]
+     fn test_per_dir_watch_count_excludes_ignored_and_git_internals() {
+diff --git a/crates/codegen/xai-grok-shell/src/session/fs_watch.rs b/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
+--- a/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
++++ b/crates/codegen/xai-grok-shell/src/session/fs_watch.rs
+@@ -836,8 +836,12 @@
+ pub(crate) fn spawn(plan: FsWatchPlan) -> FsWatchHandle {
+     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
+     let cwd = plan.cwd.clone();
+-    let fs_config = plan.fs_config.clone();
+-    let send_index_at_start = plan
++    let fs_config = plan.fs_config.clone();
++    let vcs_only = plan.git_head.is_some()
++        && plan.client_notify.is_none()
++        && plan.hunk.is_none()
++        && plan.index.is_none();
++    let send_index_at_start = plan
+         .client_notify
+         .as_ref()
+         .is_some_and(|c| c.mode == ClientFsMode::Index);
+@@ -843,9 +847,10 @@
+         .is_some_and(|c| c.mode == ClientFsMode::Index);
+ 
+     tracing::debug!(
+-        ?cwd,
+-        client_notify = plan.client_notify.is_some(),
+-        "fs-notify: starting FsEventSource"
++        ?cwd,
++        client_notify = plan.client_notify.is_some(),
++        vcs_only,
++        "fs-notify: starting FsEventSource"
+     );
+ 
+     tokio::task::spawn_local(async move {
+@@ -855,10 +860,15 @@
+         let source = {
+             let mut timer = crate::instrumentation_timer!("session.fs_notify_start");
+             timer.with_field("cwd", cwd.to_string_lossy().as_ref());
+-            let init_cwd = cwd.clone();
+-            let result =
+-                tokio::task::spawn_blocking(move || xai_fsnotify::shared(init_cwd, fs_config))
+-                    .await;
++            let init_cwd = cwd.clone();
++            let result = tokio::task::spawn_blocking(move || {
++                if vcs_only {
++                    xai_fsnotify::shared_vcs_only(init_cwd, fs_config)
++                } else {
++                    xai_fsnotify::shared(init_cwd, fs_config)
++                }
++            })
++            .await;
+             let ws = xai_fsnotify::stats();
+             timer.with_field("live_watchers", ws.live_watchers as u64);
+             timer.with_field("watchers_created_total", ws.created_total);
+
+base-commit: 2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8
+-- 
+2.55.0
